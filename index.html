@@ -90,6 +90,7 @@
 
   <script>
     const API_URL = 'api.php';
+    const ADMIN_EMAIL = 'comercial@oidigitalmedia.com';
     let PIPELINES = {
       real_estate: {
         key: 'real_estate',
@@ -137,6 +138,12 @@
     const apiEndpoint = (action) => `${API_URL}?action=${encodeURIComponent(action)}&pipeline=${encodeURIComponent(currentPipeline)}`;
     const getLead = (id) => leads.find((lead) => lead.Lead_ID === id);
     const uniqueApproaches = () => [...new Set(leads.map((lead) => lead.Approach_Type).filter(Boolean))].sort();
+
+    async function apiFetch(url, opts = {}) {
+      const res = await fetch(url, { credentials: 'same-origin', ...opts });
+      if (res.status === 401) { renderLoginScreen(); throw new Error('unauthenticated'); }
+      return res;
+    }
 
     function labelsFromStatuses(statuses) {
       return statuses.reduce((labels, status) => {
@@ -298,7 +305,10 @@
                   <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-500">${escapeHtml(config.subtitle)}</p>
                 </div>
                 <div class="flex flex-col gap-3 lg:items-end">
-                  ${renderPipelineTabs()}
+                  <div class="flex flex-wrap items-center justify-end gap-2">
+                    ${renderPipelineTabs()}
+                    <button id="logout-button" type="button" class="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-bold uppercase tracking-[0.14em] text-zinc-400 transition hover:border-rose-300/35 hover:bg-rose-300/10 hover:text-rose-100">Sair</button>
+                  </div>
                   ${actions}
                 </div>
               </div>
@@ -331,10 +341,22 @@
           loadLeads();
         });
       });
+
+      const logoutButton = document.getElementById('logout-button');
+      if (logoutButton) {
+        logoutButton.addEventListener('click', async () => {
+          try {
+            await fetch(`${API_URL}?action=logout`, { method: 'POST', credentials: 'same-origin' });
+          } catch (_) {
+            // segue pro login mesmo se a chamada falhar
+          }
+          renderLoginScreen();
+        });
+      }
     }
 
     async function saveColumnLabels() {
-      const response = await fetch(apiEndpoint('update_column_labels'), {
+      const response = await apiFetch(apiEndpoint('update_column_labels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ column_labels: columnLabels })
@@ -350,7 +372,7 @@
       app.innerHTML = `<div class="app-shell flex min-h-screen items-center justify-center text-sm font-medium text-zinc-500">Carregando ${escapeHtml(config.title)}...</div>`;
 
       try {
-        const response = await fetch(apiEndpoint('get_leads'));
+        const response = await apiFetch(apiEndpoint('get_leads'));
         const data = await response.json();
         if (!data.success) throw new Error(data.error || 'Erro ao carregar leads');
 
@@ -398,7 +420,7 @@
       renderCRM();
 
       try {
-        const response = await fetch(apiEndpoint('sync'), { method: 'POST' });
+        const response = await apiFetch(apiEndpoint('sync'), { method: 'POST' });
         const text = await response.text();
         const data = JSON.parse(text);
         if (!data.success) throw new Error(data.error || 'Erro no sync');
@@ -1141,7 +1163,7 @@
       message.textContent = 'Salvando...';
 
       try {
-        const response = await fetch(apiEndpoint('update_lead'), {
+        const response = await apiFetch(apiEndpoint('update_lead'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1170,7 +1192,7 @@
       message.textContent = 'Excluindo...';
 
       try {
-        const response = await fetch(apiEndpoint('delete_lead'), {
+        const response = await apiFetch(apiEndpoint('delete_lead'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ Lead_ID: lead.Lead_ID })
@@ -1233,7 +1255,7 @@
         messageEl.textContent = 'Importando...';
 
         try {
-          const response = await fetch(apiEndpoint('import'), { method: 'POST', body: formData });
+          const response = await apiFetch(apiEndpoint('import'), { method: 'POST', body: formData });
           const text = await response.text();
           const data = JSON.parse(text);
           if (!data.success) throw new Error(data.error || 'Erro no import');
@@ -1241,6 +1263,140 @@
           setTimeout(() => loadLeads(), 5000);
         } catch (error) {
           messageEl.textContent = error.message;
+        }
+      });
+    }
+
+    function renderSetupScreen(message = '') {
+      app.innerHTML = `
+        <main class="app-shell flex min-h-screen items-center justify-center px-4 py-10">
+          <section class="soft-panel w-full max-w-md rounded-2xl p-8">
+            <div class="mb-7">
+              <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-teal-200/80">Real Estate CRM</p>
+              <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">Primeiro acesso</h2>
+              <p class="mt-2 text-sm leading-6 text-zinc-400">Defina a senha da conta administradora para começar a usar o CRM.</p>
+            </div>
+            <form id="setup-form" class="space-y-4">
+              <div>
+                <label class="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">Email</label>
+                <input type="email" value="${escapeHtml(ADMIN_EMAIL)}" readonly disabled class="field-dark w-full rounded-xl px-3.5 py-2.5 text-sm opacity-60">
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">Nova senha</label>
+                <input id="setup-password" type="password" minlength="8" required autocomplete="new-password" class="field-dark w-full rounded-xl px-3.5 py-2.5 text-sm">
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">Confirmar senha</label>
+                <input id="setup-password-confirm" type="password" minlength="8" required autocomplete="new-password" class="field-dark w-full rounded-xl px-3.5 py-2.5 text-sm">
+              </div>
+              <button type="submit" class="w-full rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Definir senha</button>
+            </form>
+            <p id="setup-message" class="mt-4 text-sm ${message ? 'text-teal-200' : 'text-zinc-500'}">${escapeHtml(message)}</p>
+          </section>
+        </main>
+      `;
+      bindSetupForm();
+    }
+
+    function bindSetupForm() {
+      const form = document.getElementById('setup-form');
+      const messageEl = document.getElementById('setup-message');
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const password = document.getElementById('setup-password').value;
+        const passwordConfirm = document.getElementById('setup-password-confirm').value;
+
+        if (password.length < 8) {
+          messageEl.textContent = 'Senha muito curta (mínimo 8 caracteres).';
+          messageEl.className = 'mt-4 text-sm text-rose-300';
+          return;
+        }
+        if (password !== passwordConfirm) {
+          messageEl.textContent = 'As senhas não coincidem.';
+          messageEl.className = 'mt-4 text-sm text-rose-300';
+          return;
+        }
+
+        messageEl.textContent = 'Salvando...';
+        messageEl.className = 'mt-4 text-sm text-zinc-500';
+
+        try {
+          const response = await fetch(`${API_URL}?action=setup`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.error || 'Erro ao definir senha');
+          renderLoginScreen('Senha criada. Faça login para continuar.');
+        } catch (error) {
+          messageEl.textContent = error.message;
+          messageEl.className = 'mt-4 text-sm text-rose-300';
+        }
+      });
+    }
+
+    function renderLoginScreen(message = '') {
+      app.innerHTML = `
+        <main class="app-shell flex min-h-screen items-center justify-center px-4 py-10">
+          <section class="soft-panel w-full max-w-md rounded-2xl p-8">
+            <div class="mb-7">
+              <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-teal-200/80">Real Estate CRM</p>
+              <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">Entrar</h2>
+              <p class="mt-2 text-sm leading-6 text-zinc-400">Acesse com sua conta de administrador.</p>
+            </div>
+            <form id="login-form" class="space-y-4">
+              <div>
+                <label class="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">Email</label>
+                <input id="login-email" type="email" value="${escapeHtml(ADMIN_EMAIL)}" required autocomplete="username" class="field-dark w-full rounded-xl px-3.5 py-2.5 text-sm">
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">Senha</label>
+                <input id="login-password" type="password" required autocomplete="current-password" class="field-dark w-full rounded-xl px-3.5 py-2.5 text-sm">
+              </div>
+              <label class="flex items-center gap-2 text-sm text-zinc-400">
+                <input id="login-remember" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-transparent text-teal-300 focus:ring-teal-300/40">
+                Lembrar de mim
+              </label>
+              <button type="submit" class="w-full rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Entrar</button>
+            </form>
+            <p id="login-message" class="mt-4 text-sm ${message ? 'text-teal-200' : 'text-zinc-500'}">${escapeHtml(message)}</p>
+          </section>
+        </main>
+      `;
+      bindLoginForm();
+    }
+
+    function bindLoginForm() {
+      const form = document.getElementById('login-form');
+      const messageEl = document.getElementById('login-message');
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        const remember = document.getElementById('login-remember').checked;
+
+        messageEl.textContent = 'Entrando...';
+        messageEl.className = 'mt-4 text-sm text-zinc-500';
+
+        try {
+          const response = await fetch(`${API_URL}?action=login`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, remember })
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.error || 'Erro ao entrar');
+
+          await bootPipelines();
+          loadLeads();
+        } catch (error) {
+          messageEl.textContent = error.message;
+          messageEl.className = 'mt-4 text-sm text-rose-300';
         }
       });
     }
@@ -1269,9 +1425,9 @@
       };
     }
 
-    async function initApp() {
+    async function bootPipelines() {
       try {
-        const response = await fetch(`${API_URL}?action=pipelines`);
+        const response = await fetch(`${API_URL}?action=pipelines`, { credentials: 'same-origin' });
         const data = await response.json();
         if (data.success && Array.isArray(data.pipelines)) {
           const built = {};
@@ -1281,6 +1437,21 @@
       } catch (_) {
         // fallback: PIPELINES já tem real_estate
       }
+    }
+
+    async function initApp() {
+      let session;
+      try {
+        const res = await fetch(`${API_URL}?action=session`, { credentials: 'same-origin' });
+        session = await res.json();
+      } catch (_) {
+        session = { authenticated: false, needs_setup: false };
+      }
+
+      if (session.needs_setup) return renderSetupScreen();
+      if (!session.authenticated) return renderLoginScreen();
+
+      await bootPipelines();
       loadLeads();
     }
 

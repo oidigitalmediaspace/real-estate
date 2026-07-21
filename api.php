@@ -7,6 +7,13 @@ if (file_exists(__DIR__ . '/config.php')) {
     require_once __DIR__ . '/config.php';
 }
 
+define('ADMIN_EMAIL',    'comercial@oidigitalmedia.com');
+define('SESSION_COOKIE', 'oi_session');
+define('REMEMBER_TTL',   30 * 24 * 60 * 60);  // 30 dias
+define('SHORT_TTL',      12 * 60 * 60);        // 12h (sessão curta / "não lembrar")
+define('MAX_FAILED',     5);                   // tentativas antes de bloquear
+define('LOCK_MINUTES',   15);                  // duração do bloqueio
+
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -27,6 +34,49 @@ function json_response($payload, $statusCode = 200) {
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
+}
+
+// ── autenticação (tabela users/sessions no Neon; sem session_start()) ─────────
+
+function auth_current_user() {
+    static $cached = false;                 // false = ainda não resolvido; null = anônimo
+    if ($cached !== false) return $cached;
+    $token = isset($_COOKIE[SESSION_COOKIE]) ? $_COOKIE[SESSION_COOKIE] : '';
+    if ($token === '') return $cached = null;
+    $r = neon_query(
+        'SELECT u.id, u.email, u.role, s.expires_at
+           FROM sessions s JOIN users u ON u.id = s.user_id
+          WHERE s.token = $1', array($token));
+    if (empty($r['rows'])) return $cached = null;
+    $row = $r['rows'][0];
+    if (strtotime($row['expires_at']) < time()) {              // expirada → limpa
+        neon_query('DELETE FROM sessions WHERE token = $1', array($token));
+        return $cached = null;
+    }
+    return $cached = $row;
+}
+
+function require_auth() {
+    if (auth_current_user() === null) {
+        json_response(array('success' => false, 'error' => 'Não autenticado',
+                            'code' => 'unauthenticated'), 401);
+    }
+}
+
+function auth_set_cookie($token, $remember) {
+    setcookie(SESSION_COOKIE, $token, array(
+        'expires'  => $remember ? time() + REMEMBER_TTL : 0,   // 0 = cookie de sessão
+        'path'     => '/',
+        'secure'   => true,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ));
+}
+
+function auth_needs_setup() {
+    $r = neon_query('SELECT password_hash FROM users WHERE email = $1', array(ADMIN_EMAIL));
+    if (empty($r['rows'])) return false;                        // migração não rodou
+    return $r['rows'][0]['password_hash'] === null;
 }
 
 // ── driver: file (real_estate only, intocável) ────────────────────────────────
@@ -512,6 +562,74 @@ function current_pipeline() {
 // ── roteamento ────────────────────────────────────────────────────────────────
 
 try {
+    // ── auth: público (sem sessão) ─────────────────────────────────────────
+    if ($action === 'session') {
+        if (auth_needs_setup()) {
+            json_response(array('success' => true, 'authenticated' => false, 'needs_setup' => true));
+        }
+        $u = auth_current_user();
+        json_response(array(
+            'success'       => true,
+            'authenticated' => $u !== null,
+            'needs_setup'   => false,
+            'email'         => $u ? $u['email'] : null,
+        ));
+    }
+
+    if ($action === 'setup') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success'=>false,'error'=>'Método inválido'), 405);
+        if (!auth_needs_setup()) json_response(array('success'=>false,'error'=>'Senha já configurada'), 403);
+        $input = json_decode(file_get_contents('php://input'), true);
+        $pw = isset($input['password']) ? (string)$input['password'] : '';
+        if (strlen($pw) < 8) json_response(array('success'=>false,'error'=>'Senha muito curta (mínimo 8 caracteres)'), 400);
+        $hash = password_hash($pw, PASSWORD_DEFAULT);
+        neon_query('UPDATE users SET password_hash = $1 WHERE email = $2', array($hash, ADMIN_EMAIL));
+        json_response(array('success' => true));   // front redireciona pra tela de login
+    }
+
+    if ($action === 'login') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success'=>false,'error'=>'Método inválido'), 405);
+        $input    = json_decode(file_get_contents('php://input'), true);
+        $email    = isset($input['email']) ? strtolower(trim((string)$input['email'])) : '';
+        $password = isset($input['password']) ? (string)$input['password'] : '';
+        $remember = !empty($input['remember']);
+
+        $r = neon_query('SELECT * FROM users WHERE email = $1', array($email));
+        if (empty($r['rows'])) json_response(array('success'=>false,'error'=>'Email ou senha inválidos'), 401);
+        $u = $r['rows'][0];
+
+        if ($u['locked_until'] !== null && strtotime($u['locked_until']) > time()) {
+            json_response(array('success'=>false,'error'=>'Conta temporariamente bloqueada. Tente novamente em alguns minutos.'), 423);
+        }
+        if (empty($u['password_hash']) || !password_verify($password, $u['password_hash'])) {
+            $fail = intval($u['failed_attempts']) + 1;
+            $lock = $fail >= MAX_FAILED ? gmdate('Y-m-d\TH:i:s\Z', time() + LOCK_MINUTES * 60) : null;
+            neon_query('UPDATE users SET failed_attempts = $1, locked_until = $2 WHERE id = $3',
+                       array($fail, $lock, $u['id']));
+            json_response(array('success'=>false,'error'=>'Email ou senha inválidos'), 401);
+        }
+
+        // sucesso
+        $ttl   = $remember ? REMEMBER_TTL : SHORT_TTL;
+        $token = bin2hex(random_bytes(32));
+        neon_query('INSERT INTO sessions (token, user_id, expires_at, user_agent) VALUES ($1,$2,$3,$4)',
+            array($token, $u['id'], gmdate('Y-m-d\TH:i:s\Z', time() + $ttl),
+                  substr(isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '', 0, 255)));
+        neon_query('UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = now() WHERE id = $1',
+                   array($u['id']));
+        auth_set_cookie($token, $remember);
+        json_response(array('success' => true, 'email' => $u['email']));
+    }
+
+    if ($action === 'logout') {
+        $token = isset($_COOKIE[SESSION_COOKIE]) ? $_COOKIE[SESSION_COOKIE] : '';
+        if ($token !== '') neon_query('DELETE FROM sessions WHERE token = $1', array($token));
+        setcookie(SESSION_COOKIE, '', array('expires'=>time()-3600,'path'=>'/','secure'=>true,'httponly'=>true,'samesite'=>'Lax'));
+        json_response(array('success' => true));
+    }
+
+    require_auth();   // daqui pra baixo, tudo exige sessão válida
+
     // action=pipelines não precisa de pipeline específico
     if ($action === 'pipelines') {
         $configs = all_pipeline_configs();
