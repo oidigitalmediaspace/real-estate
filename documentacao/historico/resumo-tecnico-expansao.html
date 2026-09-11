@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Real Estate CRM — Guia técnico para expansão</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    :root {
+      --ink: #18222b;
+      --muted: #60707c;
+      --teal: #0f766e;
+      --teal-2: #14b8a6;
+      --teal-soft: #e7f6f3;
+      --navy: #0c1b25;
+      --line: #dce5e8;
+      --paper: #ffffff;
+      --soft: #f5f8f8;
+      --amber: #a16207;
+      --amber-soft: #fff7db;
+      --red: #b42318;
+      --red-soft: #fff0ee;
+      --green: #166534;
+      --green-soft: #edf8ee;
+    }
+    html, body { margin: 0; padding: 0; background: #dfe6e8; color: var(--ink); }
+    body { font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 9.5pt; line-height: 1.42; }
+    .page {
+      position: relative;
+      width: 210mm;
+      min-height: 297mm;
+      margin: 8mm auto;
+      padding: 17mm 17mm 16mm;
+      background: var(--paper);
+      box-shadow: 0 10px 28px rgba(24,34,43,.13);
+      page-break-after: always;
+      overflow: hidden;
+    }
+    .page:last-child { page-break-after: auto; }
+    .page.compact { font-size: 9.1pt; line-height: 1.36; }
+    .page.compact h2 { margin-bottom: 4mm; }
+    .page.compact h3 { margin-top: 3.4mm; }
+    .page.compact table { font-size: 8.2pt; }
+    .page.compact th, .page.compact td { padding: 2mm 2.2mm; }
+    .page.compact .card { padding: 3.2mm; }
+    .page-number {
+      position: absolute;
+      right: 17mm;
+      bottom: 8mm;
+      color: #82919b;
+      font-size: 8pt;
+      letter-spacing: .08em;
+    }
+    .page-mark {
+      position: absolute;
+      left: 17mm;
+      bottom: 8mm;
+      color: #82919b;
+      font-size: 8pt;
+    }
+    h1, h2, h3, h4, p { margin-top: 0; }
+    h1 { font-size: 30pt; line-height: 1.08; letter-spacing: -.035em; }
+    h2 { margin-bottom: 5mm; font-size: 19pt; line-height: 1.16; letter-spacing: -.025em; color: var(--navy); }
+    h3 { margin: 4mm 0 2mm; font-size: 12pt; line-height: 1.25; color: var(--navy); }
+    h4 { margin: 3mm 0 1.4mm; font-size: 9.5pt; color: var(--teal); text-transform: uppercase; letter-spacing: .07em; }
+    p { margin-bottom: 2.6mm; }
+    ul, ol { margin: 1.5mm 0 3mm 5mm; padding-left: 4mm; }
+    li { margin-bottom: 1.3mm; }
+    code { font-family: Consolas, "Courier New", monospace; font-size: 8.2pt; color: #0b5c55; }
+    pre {
+      margin: 2mm 0 3mm;
+      padding: 3.3mm;
+      border-radius: 2.5mm;
+      background: #0f1e27;
+      color: #e7f7f5;
+      font: 7.6pt/1.42 Consolas, "Courier New", monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 8.6pt; }
+    th, td { padding: 2.2mm 2.4mm; border: 1px solid var(--line); vertical-align: top; }
+    th { background: #eef4f4; color: var(--navy); text-align: left; font-weight: 700; }
+    tr { break-inside: avoid; }
+    .kicker { color: var(--teal); text-transform: uppercase; letter-spacing: .18em; font-size: 8pt; font-weight: 800; }
+    .lede { font-size: 13pt; line-height: 1.52; color: #33434f; }
+    .muted { color: var(--muted); }
+    .small { font-size: 8.2pt; }
+    .tiny { font-size: 7.6pt; }
+    .rule { height: 1px; margin: 4mm 0; background: linear-gradient(90deg, var(--teal-2), var(--line) 60%, transparent); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
+    .card { padding: 3.5mm; border: 1px solid var(--line); border-radius: 3mm; background: var(--soft); break-inside: avoid; }
+    .card h3 { margin-top: 0; }
+    .metric { padding: 4mm; border-top: 1.2mm solid var(--teal-2); border-radius: 2mm; background: #f3f8f8; }
+    .metric strong { display: block; margin-bottom: 1mm; font-size: 18pt; line-height: 1; color: var(--navy); }
+    .callout { margin: 3mm 0; padding: 3.5mm 4mm; border-left: 1.2mm solid var(--teal); background: var(--teal-soft); border-radius: 0 2mm 2mm 0; }
+    .callout.warn { border-left-color: #d69e2e; background: var(--amber-soft); }
+    .callout.danger { border-left-color: var(--red); background: var(--red-soft); }
+    .callout.good { border-left-color: var(--green); background: var(--green-soft); }
+    .pill { display: inline-block; margin: 0 .7mm .7mm 0; padding: .8mm 2mm; border-radius: 99px; background: var(--teal-soft); color: var(--teal); font-size: 7.5pt; font-weight: 700; }
+    .priority { display: inline-block; min-width: 8mm; margin-right: 1.5mm; padding: .5mm 1.5mm; border-radius: 1mm; text-align: center; font-size: 7.3pt; font-weight: 800; }
+    .p0 { color: #fff; background: var(--red); }
+    .p1 { color: #704700; background: #f6cf65; }
+    .p2 { color: #155e75; background: #cff3f6; }
+    .arch { margin: 3mm 0 4mm; padding: 4mm; border: 1px solid var(--line); border-radius: 3mm; background: #fbfdfd; }
+    .arch-row { display: flex; align-items: stretch; justify-content: center; gap: 3mm; }
+    .arch-box { flex: 1; padding: 3mm; border: 1px solid #c9d9dc; border-radius: 2.5mm; background: #fff; text-align: center; }
+    .arch-box strong { display: block; color: var(--navy); }
+    .arch-box.teal { border-color: #7bcfc4; background: var(--teal-soft); }
+    .arch-box.dark { border-color: var(--navy); background: var(--navy); color: #dbeaec; }
+    .arch-box.dark strong { color: #fff; }
+    .arrow { padding: 1.5mm 0; text-align: center; color: var(--teal); font-weight: 800; letter-spacing: .06em; }
+    .timeline { border-left: 1mm solid #b7dcd7; margin-left: 2mm; padding-left: 5mm; }
+    .timeline-item { position: relative; margin: 0 0 3mm; }
+    .timeline-item::before { content: ""; position: absolute; left: -6.6mm; top: 1.3mm; width: 2.3mm; height: 2.3mm; border-radius: 50%; background: var(--teal-2); border: .7mm solid #fff; box-shadow: 0 0 0 .4mm #8acfc6; }
+    .checklist { list-style: none; margin-left: 0; padding-left: 0; }
+    .checklist li { position: relative; padding-left: 5mm; }
+    .checklist li::before { content: "□"; position: absolute; left: 0; color: var(--teal); font-weight: 800; }
+    .cover { color: white; background:
+      radial-gradient(circle at 80% 18%, rgba(20,184,166,.35), transparent 38%),
+      linear-gradient(145deg, #07151e 0%, #0c2630 62%, #0f766e 160%); }
+    .cover h1 { max-width: 155mm; margin-top: 53mm; color: #fff; }
+    .cover .lede { max-width: 138mm; color: #cbe1e3; }
+    .cover-band { position: absolute; left: 0; top: 0; width: 7mm; height: 100%; background: var(--teal-2); }
+    .cover-meta { position: absolute; left: 17mm; right: 17mm; bottom: 23mm; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4mm; }
+    .cover-meta div { padding-top: 2mm; border-top: 1px solid rgba(255,255,255,.25); color: #a9c7ca; font-size: 8pt; }
+    .cover-meta strong { display: block; margin-top: 1mm; color: white; font-size: 9pt; }
+    .toc { display: grid; grid-template-columns: 8mm 1fr; gap: 2mm 3mm; margin-top: 5mm; }
+    .toc span:nth-child(odd) { color: var(--teal); font-weight: 800; }
+    .toc span:nth-child(even) { padding-bottom: 2mm; border-bottom: 1px dotted #cbd6da; }
+    .matrix { display: grid; grid-template-columns: 25mm 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+    .matrix > div { padding: 2.4mm; background: white; }
+    .matrix .head { background: #eef4f4; font-weight: 700; }
+    .source { font-family: Consolas, "Courier New", monospace; font-size: 7.8pt; }
+    @media print {
+      html, body { background: white; }
+      .page { margin: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <section class="page cover" id="pagina-1">
+    <div class="cover-band"></div>
+    <p class="kicker" style="color:#7ee8d8">Oi Digital Media · Documento de transição</p>
+    <h1>Real Estate CRM<br>Guia técnico para expansão</h1>
+    <p class="lede">Como o sistema funciona hoje, onde estão os dados, como adicionar pipelines e quais riscos devem ser resolvidos antes de escalar.</p>
+    <div style="margin-top:12mm">
+      <span class="pill" style="background:rgba(255,255,255,.10);color:#dffaf6">PHP puro</span>
+      <span class="pill" style="background:rgba(255,255,255,.10);color:#dffaf6">JavaScript vanilla</span>
+      <span class="pill" style="background:rgba(255,255,255,.10);color:#dffaf6">Neon PostgreSQL</span>
+      <span class="pill" style="background:rgba(255,255,255,.10);color:#dffaf6">SiteGround</span>
+      <span class="pill" style="background:rgba(255,255,255,.10);color:#dffaf6">Google Sheets CSV</span>
+    </div>
+    <div class="cover-meta">
+      <div>Revisão do código<strong>commit 2450017</strong></div>
+      <div>Branch analisada<strong>feature/ambiente-local</strong></div>
+      <div>Data do levantamento<strong>31 ago. 2026</strong></div>
+    </div>
+  </section>
+
+  <section class="page compact" id="pagina-2">
+    <p class="kicker">01 · Orientação rápida</p>
+    <h2>O que você acabou de assumir</h2>
+    <p class="lede">É um CRM Kanban compacto para organizar leads e registrar andamento comercial. O produto começou como um único pipeline de real estate baseado em arquivo e evoluiu para uma plataforma com vários pipelines configurados no banco.</p>
+
+    <div class="grid-3">
+      <div class="metric"><strong>2</strong>arquivos concentram a aplicação: <code>index.html</code> e <code>api.php</code>.</div>
+      <div class="metric"><strong>2</strong>modelos de armazenamento: arquivo JSON legado e Neon.</div>
+      <div class="metric"><strong>584</strong>registros em cada CSV local de origem/fase 1.</div>
+    </div>
+
+    <h3>Resumo executivo</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>O que já funciona</h4>
+        <ul>
+          <li>Login de um administrador, com sessão persistida no Neon.</li>
+          <li>Seleção de pipeline, Kanban, busca, filtros e modal do lead.</li>
+          <li>Importação manual do pipeline legado <code>real_estate</code>.</li>
+          <li>Sincronização de planilhas publicadas para pipelines no Neon.</li>
+          <li>Preservação de status e notas internas durante reimport/sync.</li>
+          <li>Deploy automático por FTP a cada push na <code>main</code>.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>O que limita a expansão</h4>
+        <ul>
+          <li>Não há migrations, schema versionado, testes ou ambiente local reproduzível.</li>
+          <li>Frontend e backend são arquivos monolíticos, com regras duplicadas.</li>
+          <li>O “auto-sync de 5 min” ocorre novamente a cada carregamento.</li>
+          <li>Deploy pode publicar documentação e CSVs com dados pessoais.</li>
+          <li>Operação, backup, monitoramento e recuperação não estão documentados.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout warn"><strong>Fonte de verdade:</strong> este guia segue o código atual. <code>real-estate-crm-spec.md</code> descreve a primeira versão — sem login, sem Neon e com apenas um pipeline — e hoje deve ser tratado como histórico.</div>
+
+    <h3>Mapa deste documento</h3>
+    <div class="toc">
+      <span>02</span><span>Arquitetura e responsabilidades</span>
+      <span>03</span><span>Fluxo do usuário e tipos de pipeline</span>
+      <span>04</span><span>API, autenticação e modelo de dados</span>
+      <span>05</span><span>Importação, sincronização e preservação de dados</span>
+      <span>06</span><span>Como expandir: configuração versus código</span>
+      <span>07</span><span>Deploy, ambiente e operação</span>
+      <span>08</span><span>Riscos e correções prioritárias</span>
+      <span>09</span><span>Plano recomendado para os primeiros 30 dias</span>
+      <span>10</span><span>Checklist de validação e mapa de arquivos</span>
+    </div>
+    <div class="page-mark">Real Estate CRM · Guia técnico</div><div class="page-number">2 / 12</div>
+  </section>
+
+  <section class="page compact" id="pagina-3">
+    <p class="kicker">02 · Arquitetura</p>
+    <h2>Uma aplicação simples, com dependências operacionais importantes</h2>
+
+    <div class="arch">
+      <div class="arch-row">
+        <div class="arch-box teal"><strong>Navegador</strong><code>index.html</code><br>Tailwind CDN + JS vanilla</div>
+      </div>
+      <div class="arrow">HTTPS · JSON · cookie HttpOnly ↕</div>
+      <div class="arch-row">
+        <div class="arch-box dark"><strong>SiteGround / PHP</strong><code>api.php</code><br>rotas, auth, CSV e regras</div>
+      </div>
+      <div class="arrow">↙ armazenamento híbrido ↘</div>
+      <div class="arch-row">
+        <div class="arch-box"><strong>Arquivo legado</strong><code>data.json</code><br>somente <code>real_estate</code></div>
+        <div class="arch-box"><strong>Neon PostgreSQL</strong><code>pipelines</code>, <code>leads</code>,<br><code>users</code>, <code>sessions</code></div>
+      </div>
+      <div class="arrow">Neon pipelines ← CSV público ← Google Sheets</div>
+    </div>
+
+    <h3>Responsabilidade de cada camada</h3>
+    <table>
+      <thead><tr><th>Camada</th><th>Responsabilidade real</th><th>Observação para expansão</th></tr></thead>
+      <tbody>
+        <tr><td><code>index.html</code></td><td>Tela inteira, estado em memória, filtros, renderização, chamadas da API, login e auto-sync.</td><td>Tem 1.461 linhas. Qualquer nova tela aumenta acoplamento e risco de regressão.</td></tr>
+        <tr><td><code>api.php</code></td><td>Roteamento por <code>?action=</code>, autenticação, leitura/escrita, integração Neon e parsing CSV.</td><td>Tem 825 linhas e não usa framework, Composer ou biblioteca de validação.</td></tr>
+        <tr><td><code>data.json</code></td><td>Banco de dados em arquivo do pipeline original.</td><td>Existe apenas em produção, é ignorado pelo Git e excluído do deploy. Não migrar sem plano e backup.</td></tr>
+        <tr><td>Neon</td><td>Configura pipelines, guarda leads genéricos e mantém login/sessões.</td><td>O schema não está no repositório; hoje o banco contém parte essencial da aplicação.</td></tr>
+        <tr><td>Google Sheets</td><td>Origem de dados dos novos pipelines via links CSV publicados.</td><td>Os links são públicos para leitura e a sincronização depende da estrutura dos cabeçalhos.</td></tr>
+        <tr><td>GitHub Actions</td><td>Gera <code>config.php</code> com a conexão Neon e publica por FTP.</td><td>Push na <code>main</code> é deploy de produção; não há estágio de teste nem homologação.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout"><strong>Princípio central:</strong> <code>real_estate</code> é um caminho especial e fixo; todos os outros pipelines são dinâmicos. O backend resolve o driver a partir da chave do pipeline.</div>
+
+    <h3>Dependências externas em tempo de execução</h3>
+    <p><span class="pill">PHP 7.4+</span><span class="pill">HTTPS</span><span class="pill">allow_url_fopen</span><span class="pill">saída HTTPS</span><span class="pill">Tailwind CDN</span><span class="pill">Google Fonts</span><span class="pill">Neon HTTP SQL API</span></p>
+    <p class="small muted">Sem internet, o CSS do Tailwind e a fonte não carregam; sem Neon, login e pipelines dinâmicos ficam indisponíveis. A conexão PostgreSQL não usa PDO: o PHP envia SQL por HTTP para <code>https://&lt;host-neon&gt;/sql</code>.</p>
+    <div class="page-mark">Arquitetura atual</div><div class="page-number">3 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-4">
+    <p class="kicker">03 · Fluxos</p>
+    <h2>Da abertura do CRM ao trabalho com um lead</h2>
+
+    <h3>Inicialização da aplicação</h3>
+    <div class="timeline">
+      <div class="timeline-item"><strong>1. Sessão.</strong> O navegador chama <code>action=session</code>. Se o admin existe com senha nula, abre o primeiro acesso; se não há sessão válida, abre o login.</div>
+      <div class="timeline-item"><strong>2. Catálogo.</strong> Após autenticar, chama <code>action=pipelines</code>. O backend combina o pipeline fixo <code>real_estate</code> com os registros da tabela <code>pipelines</code>.</div>
+      <div class="timeline-item"><strong>3. Leads.</strong> Chama <code>action=get_leads&amp;pipeline=...</code>, hidrata o estado do JavaScript e monta as colunas.</div>
+      <div class="timeline-item"><strong>4. Sync opcional.</strong> Se o pipeline aceita sync e o timestamp parece antigo, o frontend chama <code>action=sync</code> antes de exibir o board.</div>
+      <div class="timeline-item"><strong>5. Trabalho diário.</strong> Busca e filtros rodam no navegador. Ao salvar status/notas, o frontend atualiza a API e depois sua cópia em memória.</div>
+    </div>
+
+    <h3>Dois tipos de pipeline</h3>
+    <div class="matrix">
+      <div class="head">Aspecto</div><div class="head">Legado: <code>real_estate</code></div><div class="head">Dinâmico: Neon</div>
+      <div>Origem</div><div>Upload manual de CSV pela interface.</div><div>Uma ou mais abas do Google Sheets publicadas como CSV.</div>
+      <div>Persistência</div><div><code>data.json</code> no SiteGround.</div><div>Tabelas <code>pipelines</code> e <code>leads</code>.</div>
+      <div>Campos</div><div>Lista fixa de 30 campos + status/notas.</div><div>Payload flexível em JSONB + colunas de status/notas.</div>
+      <div>Atualização</div><div>Import/reimport manual.</div><div>Sync manual e tentativa de auto-sync.</div>
+      <div>Exclusão</div><div>Desabilitada.</div><div>Controlada por <code>supports_delete</code>.</div>
+      <div>Filtros</div><div>Nome, tier e approach.</div><div>Busca em nome, email, telefones e Lead_ID.</div>
+      <div>Modal</div><div>Layout específico para qualificação de real estate.</div><div>Layout genérico: contato, respostas extras, UTM e notas.</div>
+    </div>
+
+    <div class="callout danger"><strong>Atenção ao “auto-sync”:</strong> para pipelines Neon, <code>get_leads</code> devolve <code>last_synced</code> vazio. Portanto, a checagem de 5 minutos considera o sync sempre vencido após recarregar a página ou trocar de pipeline. Na prática, isso pode baixar planilhas e executar centenas de upserts em toda abertura.</div>
+
+    <h3>Comportamentos do Kanban</h3>
+    <ul>
+      <li>Status ausentes da configuração, mas presentes nos leads, são adicionados à lista em memória.</li>
+      <li><code>board_statuses</code> limita colunas exibidas — e também as opções do seletor de status. Isso pode impedir mover um lead para um status oculto como “Fechado” ou “Descartado”.</li>
+      <li>Cada coluna mostra 15 cards inicialmente; “Carregar mais” adiciona blocos de 15, ainda com todos os dados já carregados no browser.</li>
+      <li>Os nomes das colunas podem ser editados no próprio board e são persistidos.</li>
+    </ul>
+    <div class="page-mark">Jornada e pipelines</div><div class="page-number">4 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-5">
+    <p class="kicker">04 · Contratos</p>
+    <h2>API, autenticação e modelo de dados</h2>
+
+    <h3>Rotas de <code>api.php</code></h3>
+    <table class="small">
+      <thead><tr><th>Ação</th><th>Método esperado</th><th>Autenticação</th><th>Função</th></tr></thead>
+      <tbody>
+        <tr><td><code>session</code></td><td>GET</td><td>Pública</td><td>Informa login atual ou necessidade de setup.</td></tr>
+        <tr><td><code>setup</code></td><td>POST JSON</td><td>Pública enquanto senha = null</td><td>Define a primeira senha do admin.</td></tr>
+        <tr><td><code>login</code></td><td>POST JSON</td><td>Pública</td><td>Cria token e cookie de sessão.</td></tr>
+        <tr><td><code>logout</code></td><td>Frontend usa POST</td><td>Pública</td><td>Apaga sessão e cookie; backend não restringe o método.</td></tr>
+        <tr><td><code>pipelines</code></td><td>GET</td><td>Obrigatória</td><td>Lista pipeline fixo + configurações Neon.</td></tr>
+        <tr><td><code>get_leads</code></td><td>GET</td><td>Obrigatória</td><td>Retorna todos os leads de um pipeline.</td></tr>
+        <tr><td><code>update_lead</code></td><td>POST JSON</td><td>Obrigatória</td><td>Atualiza status, observação/notas conforme driver.</td></tr>
+        <tr><td><code>update_column_labels</code></td><td>POST JSON</td><td>Obrigatória</td><td>Renomeia visualmente colunas.</td></tr>
+        <tr><td><code>import</code></td><td>POST multipart</td><td>Obrigatória</td><td>Importa CSV no pipeline de arquivo.</td></tr>
+        <tr><td><code>sync</code></td><td>POST</td><td>Obrigatória</td><td>Sincroniza planilhas de pipeline Neon.</td></tr>
+        <tr><td><code>delete_lead</code></td><td>POST JSON</td><td>Obrigatória</td><td>Exclui quando o pipeline permite.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Autenticação atual</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Implementado</h4>
+        <ul>
+          <li>Único email fixo: <code>comercial@oidigitalmedia.com</code>.</li>
+          <li>Hash via <code>password_hash</code> e verificação nativa do PHP.</li>
+          <li>Cookie <code>oi_session</code>: Secure, HttpOnly e SameSite=Lax.</li>
+          <li>Validade de 12 h ou 30 dias com “lembrar”.</li>
+          <li>Bloqueio por 15 min após 5 falhas.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Limites</h4>
+        <ul>
+          <li>Somente um administrador; coluna <code>role</code> não é aplicada.</li>
+          <li>Tokens ficam em texto puro na tabela de sessões.</li>
+          <li>Não há MFA, recuperação de senha ou trilha de auditoria.</li>
+          <li>Cookie Secure exige HTTPS — login local em HTTP não persiste.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout"><strong>Fronteira de segurança:</strong> a chamada a <code>require_auth()</code> acontece antes de qualquer leitura ou alteração de pipeline. As quatro ações públicas são sessão, setup, login e logout.</div>
+    <div class="page-mark">API e autenticação</div><div class="page-number">5 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-6">
+    <p class="kicker">04 · Contratos</p>
+    <h2>Modelo de dados e configuração</h2>
+
+    <h3>Schema inferido do código</h3>
+    <table>
+      <thead><tr><th>Tabela/arquivo</th><th>Campos usados</th><th>Chave/contrato</th></tr></thead>
+      <tbody>
+        <tr><td><code>pipelines</code></td><td>key, name, statuses, board_statuses, editable_fields, column_labels, sheet_urls, display, supports_sync, supports_delete, created_at</td><td><code>key</code> identifica o pipeline.</td></tr>
+        <tr><td><code>leads</code></td><td>pipeline_key, lead_id, data JSONB, status, internal_notes, created_at</td><td>Conflito esperado em <code>(pipeline_key, lead_id)</code>.</td></tr>
+        <tr><td><code>users</code></td><td>id, email, role, password_hash, failed_attempts, locked_until, last_login_at</td><td>Email único esperado.</td></tr>
+        <tr><td><code>sessions</code></td><td>token, user_id, expires_at, user_agent</td><td>Token usado diretamente no cookie.</td></tr>
+        <tr><td><code>data.json</code></td><td>leads[], last_updated, last_synced, column_labels</td><td><code>Lead_ID</code> é a chave de merge.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Como um registro Neon chega ao frontend</h3>
+    <div class="arch">
+      <div class="arch-row">
+        <div class="arch-box"><strong>Linha no banco</strong><code>lead_id</code> + <code>data</code> JSONB<br>+ status + internal_notes</div>
+        <div class="arch-box teal"><strong>Flatten no PHP</strong>mescla os campos em<br>um único objeto JSON</div>
+        <div class="arch-box"><strong>Objeto no browser</strong><code>Lead_ID</code>, campos da origem,<br><code>Status</code>, <code>Internal_Notes</code></div>
+      </div>
+    </div>
+
+    <h3>Campos de configuração de pipeline</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Efeito atual</th><th>Cuidado</th></tr></thead>
+      <tbody>
+        <tr><td><code>statuses</code></td><td>Lista canônica de etapas.</td><td>O backend ainda aceita Status fora dela.</td></tr>
+        <tr><td><code>board_statuses</code></td><td>Subset das colunas renderizadas.</td><td>Também restringe o dropdown de transição.</td></tr>
+        <tr><td><code>column_labels</code></td><td>Nomes visuais editáveis das colunas.</td><td>As chaves de status continuam imutáveis.</td></tr>
+        <tr><td><code>sheet_urls</code></td><td>Fontes CSV processadas em ordem.</td><td>A última aba vence em campos repetidos.</td></tr>
+        <tr><td><code>display.field_map</code></td><td>Traduz campos internos para cabeçalhos reais.</td><td><code>title_keys</code>/<code>subtitle_keys</code> não são usados.</td></tr>
+        <tr><td><code>supports_sync/delete</code></td><td>Habilita botões e endpoints correspondentes.</td><td>São capacidades, não autorização por usuário.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn"><strong>Importante:</strong> o DDL exato não está versionado. Antes de alterar tabelas, exporte o schema real do Neon, confirme constraints/índices e transforme-o na migration inicial do projeto.</div>
+    <div class="page-mark">Modelo de dados</div><div class="page-number">6 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-7">
+    <p class="kicker">05 · Ingestão</p>
+    <h2>Como importação e sincronização tratam os dados</h2>
+
+    <h3>Pipeline <code>real_estate</code>: upload manual</h3>
+    <ol>
+      <li>O usuário envia um CSV com cabeçalho e separador vírgula.</li>
+      <li>O backend lê apenas uma lista fixa de 30 campos; campos ausentes viram string vazia.</li>
+      <li>Linhas sem <code>Lead_ID</code> são ignoradas.</li>
+      <li>Lead existente é substituído pelos dados novos, mas mantém <code>Status</code>, <code>Observação</code> e <code>Internal_Notes</code>.</li>
+      <li>Novo lead entra com status “Novo”; o conjunto inteiro é gravado em <code>data.json</code> com <code>LOCK_EX</code>.</li>
+    </ol>
+    <div class="callout warn"><strong>Os CSVs locais não são equivalentes ao arquivo final de importação.</strong> <code>real_estate_raw.csv</code> tem 584 linhas e 51 colunas, porém não possui <code>Lead_ID</code> e seria ignorado. <code>real_estate_fase1.csv</code> tem 584 linhas e 12 colunas (99 A, 194 B, 291 C), então importa apenas a fase inicial e deixa campos posteriores vazios.</div>
+
+    <h3>Pipelines Neon: sync de planilhas</h3>
+    <div class="timeline">
+      <div class="timeline-item">Baixa cada URL de <code>sheet_urls</code> sequencialmente, com timeout de 20 s.</div>
+      <div class="timeline-item">Converte cada linha em objeto usando os cabeçalhos originais.</div>
+      <div class="timeline-item">Agrupa por <code>Lead_ID</code>; abas posteriores sobrescrevem campos de mesmo nome.</div>
+      <div class="timeline-item">Gera um UPSERT por lead e envia todos como uma transação pela Neon HTTP SQL API.</div>
+      <div class="timeline-item">No conflito, atualiza somente <code>data</code>. <code>status</code> e <code>internal_notes</code> permanecem.</div>
+    </div>
+
+    <h3>Semântica que você precisa preservar — ou mudar conscientemente</h3>
+    <table>
+      <thead><tr><th>Caso</th><th>Comportamento atual</th><th>Impacto</th></tr></thead>
+      <tbody>
+        <tr><td>Lead removido da planilha</td><td>Permanece no Neon.</td><td>O sync é incremental, não espelha exclusões.</td></tr>
+        <tr><td>Lead excluído no CRM</td><td>Volta como “Novo” no próximo sync se continuar na planilha.</td><td>Exclusão não é definitiva sem alterar a origem ou criar tombstone.</td></tr>
+        <tr><td>Lead só em aba secundária</td><td>Também é criado.</td><td>Apesar do comentário “LEFT JOIN”, o código faz união por Lead_ID.</td></tr>
+        <tr><td>Lead_ID duplicado</td><td>Última ocorrência/aba vence campo a campo.</td><td>Ordem de abas e linhas interfere no resultado.</td></tr>
+        <tr><td>Status via API</td><td>Não é validado contra a lista permitida.</td><td>Clientes externos podem criar colunas/status inesperados.</td></tr>
+        <tr><td>Concorrência no JSON</td><td>O lock cobre a escrita, não todo o read-modify-write.</td><td>Duas alterações simultâneas podem perder a atualização anterior.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout good"><strong>Boa propriedade:</strong> status comercial e notas internas ficam separados do JSONB importado no Neon; por isso o sync atualiza informações da planilha sem apagar o trabalho do time.</div>
+    <div class="page-mark">Import e sync</div><div class="page-number">7 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-8">
+    <p class="kicker">06 · Expansão</p>
+    <h2>Quando basta configurar e quando é preciso programar</h2>
+
+    <h3>Cenário A — novo pipeline parecido com os atuais</h3>
+    <p>É possível adicionar sem deploy, desde que exista <code>Lead_ID</code> estável e o modal genérico seja suficiente.</p>
+    <ol>
+      <li>Publicar cada aba do Google Sheets em formato CSV. Evitar dados que não podem ficar acessíveis por link.</li>
+      <li>Padronizar <code>Lead_ID</code> em todas as abas; definir qual aba deve ter precedência nos campos repetidos.</li>
+      <li>Criar o registro em <code>pipelines</code> no Neon.</li>
+      <li>Configurar <code>statuses</code>, <code>board_statuses</code>, URLs, flags e <code>display.field_map</code>.</li>
+      <li>Entrar no CRM, sincronizar e validar contagem, campos, status e notas.</li>
+    </ol>
+    <pre>INSERT INTO pipelines
+  (key, name, statuses, board_statuses, sheet_urls,
+   supports_sync, supports_delete, display)
+VALUES
+  ('novo_pipeline', 'Novo Pipeline',
+   '["Novo","Contatado","Qualificado","Fechado"]',
+   '["Novo","Contatado","Qualificado","Fechado"]',
+   '["https://...&output=csv"]', true, true,
+   '{"field_map":{"Nome":"Nome completo",
+                   "Number":"WhatsApp",
+                   "DateTime":"Data de entrada"}}'::jsonb);</pre>
+
+    <div class="callout warn"><strong>Divergência da documentação:</strong> <code>title_keys</code> e <code>subtitle_keys</code> são citados em <code>PIPELINES.md</code>, mas o frontend atual não os consulta. O único recurso de <code>display</code> efetivamente usado é <code>field_map</code>.</div>
+
+    <h3>Cenário B — novo tipo de card, campos editáveis ou regra de negócio</h3>
+    <p>Exige alteração de código. Hoje o frontend escolhe apenas entre “real estate” e “qualquer driver Neon”; as funções ainda se chamam <code>renderLaunchLeadCard</code> e <code>renderLaunchModal</code>, revelando a origem específica dessa tela genérica.</p>
+    <table>
+      <thead><tr><th>Necessidade</th><th>Onde mexer hoje</th><th>Direção recomendada</th></tr></thead>
+      <tbody>
+        <tr><td>Novo visual de card/modal</td><td><code>index.html</code></td><td>Criar renderers por <code>display.type</code> ou schema declarativo.</td></tr>
+        <tr><td>Novo campo editável</td><td>Frontend + <code>neon_update_lead</code> + schema</td><td>Validar whitelist no backend e versionar migration.</td></tr>
+        <tr><td>Nova fonte de dados</td><td><code>api.php</code></td><td>Separar adapters de origem: CSV, webhook, API etc.</td></tr>
+        <tr><td>Vários usuários/equipes</td><td>Auth, schema e todas as queries</td><td>Adicionar tenant, papéis e autorização por pipeline.</td></tr>
+        <tr><td>Mais volume</td><td>API e frontend</td><td>Paginação/busca no servidor e sync assíncrono em lotes.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Contrato mínimo para qualquer novo pipeline</h3>
+    <p><span class="pill">key imutável</span><span class="pill">Lead_ID estável</span><span class="pill">status “Novo”</span><span class="pill">cabeçalhos estáveis</span><span class="pill">URLs CSV válidas</span><span class="pill">política de exclusão</span><span class="pill">responsável pela origem</span></p>
+    <div class="page-mark">Playbook de expansão</div><div class="page-number">8 / 12</div>
+  </section>
+
+  <section class="page compact" id="pagina-9">
+    <p class="kicker">07 · Operação</p>
+    <h2>Ambiente, deploy e recuperação</h2>
+
+    <h3>Deploy atual</h3>
+    <div class="arch">
+      <div class="arch-row">
+        <div class="arch-box"><strong>Push em main</strong>GitHub</div>
+        <div class="arch-box teal"><strong>GitHub Actions</strong>checkout + config.php</div>
+        <div class="arch-box dark"><strong>FTP</strong><code>/public_html/</code></div>
+      </div>
+      <div class="arrow">Secrets: FTP_HOST · FTP_USER · FTP_PASS · NEON_DATABASE_URL</div>
+    </div>
+    <ul>
+      <li>O workflow cria <code>config.php</code> com uma constante contendo a connection string do Neon.</li>
+      <li><code>data.json</code> é excluído do deploy, evitando sobrescrever o banco legado de produção.</li>
+      <li>Não há build, lint, teste, backup, smoke test ou aprovação manual antes da publicação.</li>
+    </ul>
+
+    <div class="callout danger"><strong>Risco crítico de exposição:</strong> a regra de FTP exclui apenas Git e <code>data.json</code>. Assim, <code>CLAUDE.md</code>, specs, este tipo de documento e principalmente <code>dados/*.csv</code> podem ser enviados para <code>public_html</code>. Os CSVs contêm nomes, emails e telefones. Corrija a lista de exclusão ou, de preferência, publique somente uma pasta de artefatos explicitamente montada.</div>
+
+    <h3>O que falta para um ambiente local reproduzível</h3>
+    <ol>
+      <li>Um <code>README.md</code> com requisitos, comandos e troubleshooting.</li>
+      <li>Schema/migrations do Neon e dados seed para admin/pipeline de exemplo.</li>
+      <li><code>config.example.php</code> sem segredo e carregamento por variável de ambiente.</li>
+      <li>HTTPS local ou cookie Secure configurável apenas em desenvolvimento.</li>
+      <li>PHP disponível com acesso HTTPS via streams (<code>allow_url_fopen</code> + OpenSSL).</li>
+      <li>Planilha/CSV de teste sem dados pessoais.</li>
+    </ol>
+
+    <h3>Runbook mínimo de incidente</h3>
+    <table>
+      <thead><tr><th>Sintoma</th><th>Primeiro diagnóstico</th><th>Recuperação</th></tr></thead>
+      <tbody>
+        <tr><td>Login não abre</td><td>Verificar Neon, <code>NEON_DATABASE_URL</code>, HTTPS e tabelas users/sessions.</td><td>Restaurar conexão/schema; não zerar senha sem autorização.</td></tr>
+        <tr><td>Só aparece Real Estate</td><td><code>pipelines</code> falhou ou não retornou registros.</td><td>Testar Neon e consulta; o backend oculta falha nessa listagem.</td></tr>
+        <tr><td>Sync falha</td><td>Abrir a URL CSV, conferir Lead_ID, tempo de resposta e headers.</td><td>Manter dados já salvos; corrigir origem e sincronizar novamente.</td></tr>
+        <tr><td>JSON corrompido</td><td>API retorna “data.json inválido”.</td><td>Restaurar backup íntegro antes de qualquer reimport.</td></tr>
+        <tr><td>Deploy quebrou a tela</td><td>Inspecionar último workflow e console/rede do browser.</td><td>Reverter por commit e disparar novo deploy; preservar <code>data.json</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout"><strong>Backup obrigatório antes de expansão:</strong> snapshot do Neon + cópia versionada fora de <code>public_html</code> do <code>data.json</code>. Hoje não existe procedimento de backup registrado no repositório.</div>
+    <div class="page-mark">Deploy e operação</div><div class="page-number">9 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-10">
+    <p class="kicker">08 · Riscos</p>
+    <h2>O que corrigir antes de aumentar uso, dados ou equipe</h2>
+
+    <table class="small">
+      <thead><tr><th>Prioridade</th><th>Risco</th><th>Consequência</th><th>Ação recomendada</th></tr></thead>
+      <tbody>
+        <tr><td><span class="priority p0">P0</span></td><td>Deploy publica arquivos fora da aplicação.</td><td>Exposição de PII e documentos internos.</td><td>Deploy por allowlist; remover <code>dados/</code> do webroot e do artefato.</td></tr>
+        <tr><td><span class="priority p0">P0</span></td><td>Sem migrations/schema no Git.</td><td>Não é possível recriar banco, ambiente ou recuperação confiável.</td><td>Exportar DDL, criar migration inicial e documentar seeds.</td></tr>
+        <tr><td><span class="priority p0">P0</span></td><td>Backups não documentados/testados.</td><td>Perda definitiva de status, notas e configuração.</td><td>Automatizar backup e executar teste de restauração.</td></tr>
+        <tr><td><span class="priority p1">P1</span></td><td><code>last_synced</code> não persiste para Neon.</td><td>Sync pesado em cada carregamento.</td><td>Persistir timestamp no pipeline ou mover sync para job/webhook.</td></tr>
+        <tr><td><span class="priority p1">P1</span></td><td>Status não validado no backend.</td><td>Dados inválidos e colunas inesperadas.</td><td>Validar contra <code>statuses</code> e campos editáveis.</td></tr>
+        <tr><td><span class="priority p1">P1</span></td><td><code>board_statuses</code> restringe também transições.</td><td>Status finais configurados podem ficar inalcançáveis.</td><td>Separar status exibidos das opções permitidas.</td></tr>
+        <tr><td><span class="priority p1">P1</span></td><td>Sem testes e sem staging.</td><td>Todo push em main pode quebrar produção.</td><td>Adicionar CI, testes de contrato e ambiente de homologação.</td></tr>
+        <tr><td><span class="priority p1">P1</span></td><td>Erros internos retornados ao cliente.</td><td>Vazamento de detalhes de banco/rede.</td><td>Logar internamente e devolver mensagem/código genérico.</td></tr>
+        <tr><td><span class="priority p1">P1</span></td><td>SQL por requisição para todos os leads.</td><td>Timeout e payload grande ao crescer.</td><td>Batch, staging table/COPY, job assíncrono e idempotência.</td></tr>
+        <tr><td><span class="priority p2">P2</span></td><td>Arquivos monolíticos e regras duplicadas.</td><td>Mudanças lentas e regressões difíceis de isolar.</td><td>Separar módulos sem trocar toda a stack de uma vez.</td></tr>
+        <tr><td><span class="priority p2">P2</span></td><td>Todos os leads carregados no browser.</td><td>Queda de desempenho com milhares de registros.</td><td>Paginação, busca e contagens no servidor.</td></tr>
+        <tr><td><span class="priority p2">P2</span></td><td>Único admin, sem auditoria.</td><td>Sem responsabilização ou acesso por equipe.</td><td>RBAC, histórico de mudanças e eventos de auditoria.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Segurança: decisões para a próxima versão</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Curto prazo</h4>
+        <ul>
+          <li>Não publicar dados/documentos.</li>
+          <li>Validar origem, método, status e payload.</li>
+          <li>Hash de tokens de sessão no banco.</li>
+          <li>Rate limit por IP + conta, sem facilitar DoS.</li>
+          <li>Sanitizar mensagens de erro externas.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Quando houver mais usuários</h4>
+        <ul>
+          <li>Autorização real por função e pipeline.</li>
+          <li>MFA e recuperação de conta.</li>
+          <li>Auditoria de status, notas, exclusões e sync.</li>
+          <li>Política de retenção e consentimento para PII.</li>
+          <li>Revogação e limpeza de sessões expiradas.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="page-mark">Prioridades técnicas</div><div class="page-number">10 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-11">
+    <p class="kicker">09 · Plano de ação</p>
+    <h2>Primeiros 30 dias como responsável</h2>
+
+    <div class="timeline">
+      <div class="timeline-item">
+        <strong>Dias 1–3 · Tornar recuperável.</strong>
+        <ul>
+          <li>Identificar responsáveis por SiteGround, Neon, GitHub e planilhas.</li>
+          <li>Fazer snapshot do Neon e backup do <code>data.json</code>; testar leitura dos backups.</li>
+          <li>Exportar o schema e documentar variáveis/secrets sem copiar valores.</li>
+          <li>Corrigir imediatamente o escopo do deploy e retirar CSVs do webroot.</li>
+        </ul>
+      </div>
+      <div class="timeline-item">
+        <strong>Dias 4–10 · Tornar reproduzível.</strong>
+        <ul>
+          <li>Criar README, migrations, seed seguro e ambiente local HTTPS.</li>
+          <li>Adicionar lint de PHP/JS e testes dos contratos principais.</li>
+          <li>Criar staging com planilha sintética; bloquear deploy direto sem CI.</li>
+        </ul>
+      </div>
+      <div class="timeline-item">
+        <strong>Dias 11–20 · Tornar previsível.</strong>
+        <ul>
+          <li>Persistir <code>last_synced</code> e instrumentar duração/contagens/erros.</li>
+          <li>Validar status e corrigir relação entre <code>statuses</code> e <code>board_statuses</code>.</li>
+          <li>Definir semântica de exclusão e de leads ausentes da planilha.</li>
+          <li>Alinhar <code>PIPELINES.md</code> ao que <code>display</code> realmente suporta.</li>
+        </ul>
+      </div>
+      <div class="timeline-item">
+        <strong>Dias 21–30 · Preparar expansão.</strong>
+        <ul>
+          <li>Extrair configuração, API, drivers e componentes do frontend em módulos.</li>
+          <li>Criar template de onboarding de pipeline e checklist de aceite.</li>
+          <li>Medir volume esperado e decidir quando introduzir paginação/job assíncrono.</li>
+          <li>Planejar multiusuário, auditoria e governança de PII conforme necessidade real.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Ordem segura de refatoração</h3>
+    <div class="grid-3">
+      <div class="card"><h4>1 · Congelar contratos</h4><p>Testes de caracterização para os endpoints e merges atuais.</p></div>
+      <div class="card"><h4>2 · Extrair módulos</h4><p>Auth, drivers, sync e renderers, preservando respostas.</p></div>
+      <div class="card"><h4>3 · Evoluir produto</h4><p>Novos campos, usuários, fontes e automações sobre base testada.</p></div>
+    </div>
+
+    <h3>Decisões que precisam de dono de negócio</h3>
+    <ul>
+      <li>A planilha ou o CRM é a fonte final quando um lead é excluído?</li>
+      <li>Status finais devem desaparecer do board ou continuar navegáveis?</li>
+      <li>Quem pode ver/exportar dados pessoais e por quanto tempo?</li>
+      <li>Cada pipeline pertence a um cliente/equipe? Há isolamento necessário?</li>
+      <li>O sync deve ser por abertura, agenda, botão, webhook ou combinação?</li>
+      <li>Qual é a meta de volume, usuários simultâneos e disponibilidade?</li>
+    </ul>
+
+    <div class="callout good"><strong>Recomendação de arquitetura:</strong> mantenha PHP + PostgreSQL no primeiro ciclo e reduza risco com modularização, migrations e testes. Uma reescrita de stack só deve acontecer depois de medir limites concretos.</div>
+    <div class="page-mark">Plano de 30 dias</div><div class="page-number">11 / 12</div>
+  </section>
+
+  <section class="page" id="pagina-12">
+    <p class="kicker">10 · Validação e referência</p>
+    <h2>Checklist de aceite para cada mudança</h2>
+
+    <div class="grid-2">
+      <div>
+        <h3>Funcional</h3>
+        <ul class="checklist">
+          <li>Setup inicial funciona somente quando permitido.</li>
+          <li>Login, lembrar, expiração e logout funcionam.</li>
+          <li>Todos os pipelines esperados aparecem.</li>
+          <li>Contagem antes/depois do sync é coerente.</li>
+          <li>Status e notas sobrevivem a reimport/sync.</li>
+          <li>Lead novo, alterado, ausente e duplicado são testados.</li>
+          <li>Busca, filtros, colunas e “carregar mais” funcionam.</li>
+          <li>Exclusão segue a política definida.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Operacional e segurança</h3>
+        <ul class="checklist">
+          <li>Backup e restauração foram testados.</li>
+          <li>Artefato de deploy contém somente arquivos públicos.</li>
+          <li>Nenhum secret ou PII aparece em logs/artefatos.</li>
+          <li>Falhas de Neon/Sheets geram erro observável e seguro.</li>
+          <li>Rollback foi ensaiado em staging.</li>
+          <li>Schema e documentação acompanham a mudança.</li>
+          <li>Smoke test roda após deploy.</li>
+          <li>Métricas de sync e erros são acompanhadas.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Mapa dos arquivos do repositório</h3>
+    <table>
+      <thead><tr><th>Arquivo</th><th>Uso</th><th>Confiabilidade como documentação</th></tr></thead>
+      <tbody>
+        <tr><td class="source">index.html</td><td>Frontend completo e contrato visual.</td><td>Fonte de verdade.</td></tr>
+        <tr><td class="source">api.php</td><td>Backend, auth, drivers, sync e rotas.</td><td>Fonte de verdade.</td></tr>
+        <tr><td class="source">.github/workflows/deploy.yml</td><td>Publicação em produção.</td><td>Fonte de verdade do deploy.</td></tr>
+        <tr><td class="source">PIPELINES.md</td><td>Operação de pipelines no Neon.</td><td>Útil, mas <code>title_keys/subtitle_keys</code> não estão implementados.</td></tr>
+        <tr><td class="source">CLAUDE.md</td><td>Contexto e regra de preservação do legado.</td><td>Útil, parcialmente defasado sobre sync.</td></tr>
+        <tr><td class="source">real-estate-crm-spec.md</td><td>Especificação da versão inicial.</td><td>Histórico; contradiz login e multi-pipeline atuais.</td></tr>
+        <tr><td class="source">dados/*.csv</td><td>Base bruta e fase 1 do trabalho de qualificação.</td><td>Dados de origem; não publicar.</td></tr>
+        <tr><td class="source">image.png</td><td>Captura de uma interface anterior.</td><td>Referência visual histórica, não estado atual.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Limites desta análise</h3>
+    <p>Revisão estática do checkout no commit <code>2450017</code>. Não houve acesso ao Neon, SiteGround, secrets, planilhas publicadas ou <code>data.json</code> de produção. O ambiente local também não traz PHP nem suíte de testes; por isso o comportamento foi confirmado por leitura de código e histórico Git, não por teste ponta a ponta.</p>
+
+    <div class="callout"><strong>Regra de ouro:</strong> trate o <code>data.json</code> de produção e o schema real do Neon como ativos críticos. Faça backup, versionamento estrutural e teste de restauração antes de expandir funcionalidade ou equipe.</div>
+
+    <div class="rule"></div>
+    <p class="small muted">Documento gerado para transição técnica · Real Estate CRM · Oi Digital Media · 31/08/2026</p>
+    <div class="page-mark">Checklist e referências</div><div class="page-number">12 / 12</div>
+  </section>
+</body>
+</html>

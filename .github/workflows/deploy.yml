@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -13,9 +16,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create config.php from secret
+      - name: Validate PHP and offline backend tests
         run: |
-          echo "<?php define('NEON_DATABASE_URL', '${{ secrets.NEON_DATABASE_URL }}');" > config.php
+          php -l api.php
+          php -l config.example.php
+          php -l tests/sheet-registration.php
+          php tests/sheet-registration.php
+
+      - name: Validate frontend regression tests
+        run: node tests/crm-regression.cjs
+
+      - name: Create config.php from secret
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: |
+          php -r '$url = getenv("NEON_DATABASE_URL"); if (!$url) { fwrite(STDERR, "Missing NEON_DATABASE_URL secret\n"); exit(1); } file_put_contents("config.php", "<?php\ndefine(" . var_export("NEON_DATABASE_URL", true) . ", " . var_export($url, true) . ");\n");'
 
       - name: Deploy to SiteGround
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -28,3 +43,26 @@ jobs:
             **/.git*
             **/.git*/**
             data.json
+            tests/**
+            dados/**
+            documentacao/**
+            **/*.md
+            **/*.csv
+            **/*.pdf
+            **/*.log
+            **/*.sql
+            **/*.dump
+            **/*.bak
+            **/.env*
+            **/node_modules/**
+            .editorconfig
+            .gitattributes
+            .superpowers/**
+            .mcp.json
+            config.example.php
+            config.local.php
+            Slogan.png
+            image.png
+            pgcheck.php
+            info.php
+            probe.php

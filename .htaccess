@@ -1,0 +1,10 @@
+Options -Indexes
+
+# Apache/SiteGround: não disponibilizar dados internos por URL.
+<FilesMatch "(?i)^(config(?:\.[a-z0-9_-]+)?\.php|data\.json|.*\.(?:csv|sql|dump|log|bak)|AGENTS\.md|CLAUDE\.md)$">
+    Require all denied
+</FilesMatch>
+
+RewriteEngine On
+RewriteRule ^(?:tests|dados|documentacao|\.git|\.github)(?:/|$) - [F,L,NC]
+RewriteRule (^|/)\.env(?:\.|$) - [F,L,NC]

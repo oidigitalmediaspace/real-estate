@@ -5,7 +5,8 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Real Estate CRM</title>
+  <title>Oi Digital Media CRM</title>
+  <link rel="icon" href="assets/oi-digital-logo.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -16,16 +17,18 @@
       --bg: #07080a;
       --panel: rgba(18, 20, 24, 0.86);
       --line: rgba(255, 255, 255, 0.08);
+      --brand-primary: #E8205E;
+      --brand-secondary: #F99B43;
     }
     html { background: var(--bg); }
     body {
       font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
-        radial-gradient(circle at top left, rgba(20, 184, 166, 0.11), transparent 32rem),
-        radial-gradient(circle at 80% 0%, rgba(245, 158, 11, 0.08), transparent 28rem),
+        radial-gradient(circle at top left, rgba(232, 32, 94, 0.12), transparent 32rem),
+        radial-gradient(circle at 80% 0%, rgba(249, 155, 67, 0.09), transparent 28rem),
         linear-gradient(180deg, #090a0d 0%, #07080a 46%, #050506 100%);
     }
-    ::selection { background: rgba(45, 212, 191, 0.28); color: #f8fafc; }
+    ::selection { background: rgba(232, 32, 94, 0.34); color: #f8fafc; }
     .app-shell {
       min-height: 100vh;
       background-image:
@@ -36,7 +39,7 @@
     .soft-panel {
       border: 1px solid var(--line);
       background: var(--panel);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32), 0 0 48px rgba(232, 32, 94, 0.045);
       backdrop-filter: blur(18px);
     }
     .field-dark {
@@ -46,8 +49,8 @@
       transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
     }
     .field-dark:focus {
-      border-color: rgba(45, 212, 191, 0.65);
-      box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.12);
+      border-color: rgba(232, 32, 94, 0.7);
+      box-shadow: 0 0 0 3px rgba(232, 32, 94, 0.14);
       outline: none;
     }
     select.field-dark option {
@@ -83,10 +86,23 @@
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
     }
+    .drop-target-active {
+      border-color: rgba(232, 32, 94, 0.55) !important;
+      background: rgba(232, 32, 94, 0.055) !important;
+      box-shadow: inset 0 0 0 1px rgba(249, 155, 67, 0.16), 0 18px 65px rgba(232, 32, 94, 0.12) !important;
+    }
+    .lead-card-dragging { opacity: .42; transform: scale(.985); }
+    .column-dragging { opacity: .55; }
+    .column-order-target {
+      border-color: rgba(249, 155, 67, 0.68) !important;
+      box-shadow: inset 0 0 0 2px rgba(249, 155, 67, 0.22), 0 18px 65px rgba(232, 32, 94, 0.12) !important;
+    }
+    [data-column-drag-handle] { touch-action: none; }
   </style>
 </head>
 <body class="min-h-screen bg-[#07080a] text-zinc-100 antialiased">
   <div id="app" class="min-h-screen"></div>
+  <div id="processing-root"></div>
 
   <script>
     const API_URL = 'api.php';
@@ -100,7 +116,7 @@
         eyebrow: 'Pipeline',
         subtitle: 'Pipeline principal com importação manual e status salvos em produção.',
         badge: 'CSV manual',
-        statuses: ['Novo', 'Contatado', 'Qualificado', 'Top Agents', 'Em negociação', 'Respondeu', 'Fechado'],
+        statuses: ['Novo', 'Em andamento', 'Fechado'],
         supportsImport: true,
         supportsSync: false,
         supportsDelete: false,
@@ -108,13 +124,18 @@
       }
     };
     const TIER_OPTIONS = ['All', 'A+', 'A', 'B', 'C', 'D'];
-    const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
     const PAGE_SIZE = 15;
     const app = document.getElementById('app');
 
     let currentPipeline = 'real_estate';
     let leads = [];
-    let filters = { search: '', tier: 'All', approach: 'All' };
+    let filters = { search: '', tier: 'All', approach: 'All', sort: 'tier_desc' };
+    const SORT_OPTIONS = [
+      { value: 'tier_desc', label: 'Maior Tier' },
+      { value: 'tier_asc', label: 'Menor Tier' },
+      { value: 'name_asc', label: 'Ordem alfabética (A–Z)' }
+    ];
+    const nameCollator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
     let columnLimits = {};
     let columnLabels = labelsFromStatuses(PIPELINES.real_estate.statuses);
     let currentStatuses = [...PIPELINES.real_estate.statuses];
@@ -124,6 +145,17 @@
     let syncMessage = '';
     let syncError = '';
     let isSyncing = false;
+    let isColumnOperationPending = false;
+    let draggedLeadId = null;
+    let columnPointerDrag = null;
+    let dragJustEnded = false;
+    let pipelineDropdownAbortController = null;
+    const updatingLeadIds = new Set();
+    const pendingOperations = new Map();
+    let processingFocus = null;
+    let processingTimer = null;
+    let processingOverflow = '';
+    let sessionExpired = false;
 
     const escapeHtml = (value) => String(value || '')
       .replaceAll('&', '&amp;')
@@ -134,16 +166,98 @@
 
     const normalize = (value) => String(value || '').toLowerCase().trim();
     const pipelineConfig = () => PIPELINES[currentPipeline];
-    const boardStatuses = () => pipelineConfig().boardStatuses || currentStatuses;
+    const boardStatuses = () => currentStatuses;
     const apiEndpoint = (action) => `${API_URL}?action=${encodeURIComponent(action)}&pipeline=${encodeURIComponent(currentPipeline)}`;
     const getLead = (id) => leads.find((lead) => lead.Lead_ID === id);
     const uniqueApproaches = () => [...new Set(leads.map((lead) => lead.Approach_Type).filter(Boolean))].sort();
 
     async function apiFetch(url, opts = {}) {
       const res = await fetch(url, { credentials: 'same-origin', ...opts });
-      if (res.status === 401) { renderLoginScreen(); throw new Error('unauthenticated'); }
+      if (res.status === 401) {
+        sessionExpired = true;
+        throw new Error('Sua sessão expirou. Entre novamente.');
+      }
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `O servidor respondeu com erro ${res.status}. Tente novamente após conferir a conexão.`);
+      }
       return res;
     }
+
+    const isProcessing = () => pendingOperations.size > 0;
+
+    function renderProcessingOverlay() {
+      const root = document.getElementById('processing-root');
+      const messages = [...pendingOperations.values()];
+      if (!messages.length) {
+        root.replaceChildren();
+        return;
+      }
+      root.innerHTML = `
+        <div class="fixed inset-0 z-[100] flex cursor-wait items-center justify-center bg-black/60 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="processing-title" aria-describedby="processing-message processing-hint" tabindex="-1" id="processing-dialog">
+          <div class="flex w-full max-w-md items-center gap-4 rounded-2xl border border-rose-500/25 bg-[#101216] p-6 shadow-[0_24px_90px_rgba(0,0,0,.65),0_0_45px_rgba(232,32,94,.12)]">
+            <span class="h-8 w-8 shrink-0 animate-spin rounded-full border-2 border-white/10 border-r-orange-400 border-t-[#E8205E]" aria-hidden="true"></span>
+            <div role="status" aria-live="polite" aria-atomic="true">
+              <p id="processing-title" class="text-xs font-extrabold uppercase tracking-[0.2em] text-orange-300">Processando</p>
+              <p id="processing-message" class="mt-2 text-sm font-semibold leading-6 text-zinc-100">${escapeHtml(messages[messages.length - 1])}</p>
+              <p id="processing-hint" class="mt-2 text-xs leading-5 text-zinc-400">Aguarde a conclusão. As ações estão temporariamente bloqueadas.</p>
+            </div>
+          </div>
+        </div>`;
+      document.getElementById('processing-dialog').focus({ preventScroll: true });
+    }
+
+    async function withProcessing(message, task, { allowNested = false } = {}) {
+      if (isProcessing() && !allowNested) return;
+      const token = Symbol('operation');
+      const first = !isProcessing();
+      if (first) {
+        processingFocus = document.activeElement;
+        processingOverflow = document.body.style.overflow;
+      }
+      pendingOperations.set(token, message);
+      try {
+        app.inert = true;
+        app.setAttribute('aria-busy', 'true');
+        document.body.style.overflow = 'hidden';
+        renderProcessingOverlay();
+        if (first) {
+          processingTimer = setTimeout(() => {
+            const hint = document.getElementById('processing-hint');
+            if (hint) hint.textContent = 'A resposta está demorando um pouco. Ainda estamos aguardando a conclusão; não repita a ação.';
+          }, 10000);
+        }
+        return await task();
+      } finally {
+        pendingOperations.delete(token);
+        if (isProcessing()) {
+          renderProcessingOverlay();
+        } else {
+          clearTimeout(processingTimer);
+          processingTimer = null;
+          renderProcessingOverlay();
+          app.inert = false;
+          app.removeAttribute('aria-busy');
+          document.body.style.overflow = processingOverflow;
+          if (sessionExpired) {
+            sessionExpired = false;
+            renderLoginScreen('Sua sessão expirou. Entre novamente.');
+          } else if (processingFocus?.isConnected) {
+            processingFocus.focus({ preventScroll: true });
+          }
+          processingFocus = null;
+        }
+      }
+    }
+
+    // Também bloqueia eventos já enfileirados e navegação pelo teclado.
+    ['click', 'dblclick', 'pointerdown', 'keydown', 'submit', 'dragstart', 'drop'].forEach((type) => {
+      document.addEventListener(type, (event) => {
+        if (!isProcessing()) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+    });
 
     function labelsFromStatuses(statuses) {
       return statuses.reduce((labels, status) => {
@@ -165,6 +279,7 @@
 
     function hydrateData(data) {
       const config = pipelineConfig();
+      if (data.display) config.display = data.display;
       leads = Array.isArray(data.leads) ? data.leads : [];
       const serverStatuses = Array.isArray(data.statuses) && data.statuses.length ? data.statuses : config.statuses;
       currentStatuses = [...serverStatuses];
@@ -174,13 +289,20 @@
         if (!currentStatuses.includes(status)) currentStatuses.push(status);
       });
 
-      columnLabels = { ...labelsFromStatuses(currentStatuses), ...(data.column_labels || {}) };
+      Object.keys(data.column_labels || {}).forEach((status) => {
+        if (!currentStatuses.includes(status)) currentStatuses.push(status);
+      });
+
+      columnLabels = {
+        ...labelsFromStatuses(currentStatuses),
+        ...(data.column_labels || {})
+      };
       lastSynced = data.last_synced || '';
       lastUpdated = data.last_updated || '';
     }
 
     function resetFilters() {
-      filters = { search: '', tier: 'All', approach: 'All' };
+      filters = { search: '', tier: 'All', approach: 'All', sort: 'tier_desc' };
     }
 
     function resetColumnLimits() {
@@ -193,12 +315,6 @@
     function getColumnLimit(status) {
       if (!columnLimits[status]) columnLimits[status] = PAGE_SIZE;
       return columnLimits[status];
-    }
-
-    function isSyncStale(value) {
-      if (!value) return true;
-      const time = Date.parse(value);
-      return !Number.isFinite(time) || Date.now() - time > AUTO_SYNC_INTERVAL_MS;
     }
 
     function formatDateTime(value) {
@@ -221,8 +337,8 @@
     }
 
     function tierClasses(tier) {
-      if (tier === 'A+') return { border: 'border-l-teal-300', badge: 'bg-teal-300/10 text-teal-100 ring-teal-300/30', glow: 'shadow-[0_0_28px_rgba(45,212,191,.10)]' };
-      if (tier === 'A') return { border: 'border-l-emerald-400', badge: 'bg-emerald-400/10 text-emerald-100 ring-emerald-300/25', glow: 'shadow-[0_0_24px_rgba(52,211,153,.08)]' };
+      if (tier === 'A+') return { border: 'border-l-rose-500', badge: 'bg-rose-500/10 text-rose-100 ring-rose-500/30', glow: 'shadow-[0_0_28px_rgba(232,32,94,.12)]' };
+      if (tier === 'A') return { border: 'border-l-orange-400', badge: 'bg-orange-400/10 text-orange-100 ring-orange-400/25', glow: 'shadow-[0_0_24px_rgba(249,155,67,.10)]' };
       if (tier === 'B') return { border: 'border-l-amber-300', badge: 'bg-amber-300/10 text-amber-100 ring-amber-300/25', glow: 'shadow-[0_0_20px_rgba(251,191,36,.07)]' };
       if (tier === 'D') return { border: 'border-l-rose-400', badge: 'bg-rose-400/10 text-rose-100 ring-rose-300/25', glow: 'shadow-[0_0_20px_rgba(251,113,133,.07)]' };
       return { border: 'border-l-zinc-500', badge: 'bg-zinc-700/55 text-zinc-200 ring-white/10', glow: '' };
@@ -230,29 +346,65 @@
 
     function statusAccent(status) {
       const colors = {
-        'Novo': { dot: 'bg-sky-400', text: 'text-sky-200', ring: 'ring-sky-300/25', line: 'from-sky-400/70', border: 'border-l-sky-400' },
-        'Contatado': { dot: 'bg-violet-400', text: 'text-violet-200', ring: 'ring-violet-300/25', line: 'from-violet-400/70', border: 'border-l-violet-400' },
-        'Qualificado': { dot: 'bg-lime-400', text: 'text-lime-200', ring: 'ring-lime-300/25', line: 'from-lime-400/70', border: 'border-l-lime-400' },
-        'Top Agents': { dot: 'bg-fuchsia-400', text: 'text-fuchsia-200', ring: 'ring-fuchsia-300/25', line: 'from-fuchsia-400/70', border: 'border-l-fuchsia-400' },
-        'Em negociação': { dot: 'bg-orange-400', text: 'text-orange-100', ring: 'ring-orange-300/25', line: 'from-orange-400/70', border: 'border-l-orange-400' },
-        'Respondeu': { dot: 'bg-amber-300', text: 'text-amber-100', ring: 'ring-amber-300/25', line: 'from-amber-300/70', border: 'border-l-amber-300' },
-        'Call Marcada': { dot: 'bg-cyan-300', text: 'text-cyan-100', ring: 'ring-cyan-300/25', line: 'from-cyan-300/70', border: 'border-l-cyan-300' },
-        'Fechado': { dot: 'bg-emerald-400', text: 'text-emerald-200', ring: 'ring-emerald-300/25', line: 'from-emerald-400/70', border: 'border-l-emerald-400' },
-        'Descartado': { dot: 'bg-rose-400', text: 'text-rose-100', ring: 'ring-rose-300/25', line: 'from-rose-400/70', border: 'border-l-rose-400' }
+        'Novo': { dot: 'bg-rose-500', text: 'text-rose-200', ring: 'ring-rose-500/25', line: 'from-rose-500/75', border: 'border-l-rose-500' },
+        'Contatado': { dot: 'bg-orange-400', text: 'text-orange-200', ring: 'ring-orange-400/25', line: 'from-orange-400/75', border: 'border-l-orange-400' },
+        'Qualificado': { dot: 'bg-rose-400', text: 'text-rose-100', ring: 'ring-rose-400/25', line: 'from-rose-400/75', border: 'border-l-rose-400' },
+        'Top Agents': { dot: 'bg-orange-300', text: 'text-orange-100', ring: 'ring-orange-300/25', line: 'from-orange-300/75', border: 'border-l-orange-300' },
+        'Em andamento': { dot: 'bg-orange-400', text: 'text-orange-100', ring: 'ring-orange-400/25', line: 'from-orange-400/75', border: 'border-l-orange-400' },
+        'Em negociação': { dot: 'bg-rose-600', text: 'text-rose-200', ring: 'ring-rose-600/25', line: 'from-rose-600/75', border: 'border-l-rose-600' },
+        'Respondeu': { dot: 'bg-orange-500', text: 'text-orange-200', ring: 'ring-orange-500/25', line: 'from-orange-500/75', border: 'border-l-orange-500' },
+        'Call Marcada': { dot: 'bg-rose-500', text: 'text-rose-100', ring: 'ring-rose-500/25', line: 'from-rose-500/75', border: 'border-l-rose-500' },
+        'Fechado': { dot: 'bg-orange-400', text: 'text-orange-100', ring: 'ring-orange-400/25', line: 'from-orange-400/75', border: 'border-l-orange-400' },
+        'Descartado': { dot: 'bg-rose-700', text: 'text-rose-200', ring: 'ring-rose-700/25', line: 'from-rose-700/75', border: 'border-l-rose-700' }
       };
-      return colors[status] || { dot: 'bg-zinc-400', text: 'text-zinc-300', ring: 'ring-white/10', line: 'from-zinc-400/60', border: 'border-l-zinc-400' };
+      return colors[status] || { dot: 'bg-rose-500', text: 'text-rose-200', ring: 'ring-rose-500/20', line: 'from-rose-500/65', border: 'border-l-rose-500' };
     }
 
     function activityDot(activity) {
       const value = normalize(activity);
-      if (value === 'high' || value === 'yes') return 'bg-teal-300';
+      if (value === 'high' || value === 'yes') return 'bg-rose-500';
       if (value === 'medium') return 'bg-amber-300';
       if (value === 'low' || value === 'no') return 'bg-rose-400';
       return 'bg-zinc-500';
     }
 
+    function tierSortValue(lead) {
+      const config = pipelineConfig();
+      const fieldMap = (config.display || {}).field_map || {};
+      const keys = config.driver === 'neon'
+        ? ['Score AI', 'Tier', 'Score', 'New_Tier', 'Tier_Fase1']
+        : ['New_Tier', 'Tier_Fase1', 'Tier', 'Score AI'];
+      const letterRanks = { 'A+': 5, A: 4, B: 3, C: 2, D: 1 };
+      for (const key of keys) {
+        const value = String(lead[fieldMap[key] || key] ?? '').trim().replace(/^tier\s*[:#-]?\s*/i, '').toUpperCase();
+        if (Object.prototype.hasOwnProperty.call(letterRanks, value)) return letterRanks[value];
+        if (/^\d+(?:[.,]\d+)?$/.test(value)) {
+          const number = Number(value.replace(',', '.'));
+          if (Number.isFinite(number)) return number;
+        }
+      }
+      return null;
+    }
+
+    function sortVisibleLeads(items) {
+      return items.map((lead, index) => ({
+        lead, index,
+        tier: tierSortValue(lead),
+        name: String(leadField(lead, 'Nome', 'Name')).trim()
+      })).sort((a, b) => {
+        if (filters.sort === 'tier_desc' || filters.sort === 'tier_asc') {
+          if (a.tier === null && b.tier !== null) return 1;
+          if (a.tier !== null && b.tier === null) return -1;
+          if (a.tier !== b.tier) return filters.sort === 'tier_desc' ? b.tier - a.tier : a.tier - b.tier;
+        }
+        if (!a.name && b.name) return 1;
+        if (a.name && !b.name) return -1;
+        return nameCollator.compare(a.name, b.name) || a.index - b.index;
+      }).map(item => item.lead);
+    }
+
     function filteredLeads() {
-      return leads.filter((lead) => {
+      return sortVisibleLeads(leads.filter((lead) => {
         if (pipelineConfig().driver === 'neon') {
           const searchText = [
             leadField(lead, 'Nome', 'Name'),
@@ -268,21 +420,45 @@
         const matchesTier = filters.tier === 'All' || lead.New_Tier === filters.tier;
         const matchesApproach = filters.approach === 'All' || lead.Approach_Type === filters.approach;
         return matchesName && matchesTier && matchesApproach;
-      });
+      }));
     }
 
     function renderPipelineTabs() {
+      const activePipeline = pipelineConfig();
       return `
-        <nav class="grid w-full grid-cols-2 gap-1 rounded-2xl border border-white/[0.08] bg-black/20 p-1 sm:w-auto">
-          ${Object.values(PIPELINES).map((pipeline) => {
-            const active = pipeline.key === currentPipeline;
-            return `
-              <button type="button" data-pipeline-tab="${escapeHtml(pipeline.key)}" class="min-w-0 rounded-xl px-3.5 py-2.5 text-left transition ${active ? 'bg-teal-300 text-zinc-950 shadow-[0_0_30px_rgba(45,212,191,.16)]' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100'}">
-                <span class="block truncate text-sm font-extrabold">${escapeHtml(pipeline.title)}</span>
-                <span class="mt-0.5 block truncate text-[11px] font-bold uppercase tracking-[0.14em] ${active ? 'text-zinc-800/70' : 'text-zinc-600'}">${escapeHtml(pipeline.badge)}</span>
+        <nav class="relative w-full sm:w-72" data-pipeline-dropdown>
+          <button id="pipeline-dropdown-toggle" type="button" aria-controls="pipeline-dropdown-menu" aria-expanded="false" class="flex w-full items-center justify-between gap-3 rounded-xl border border-rose-500/35 bg-rose-500/10 px-3.5 py-2.5 text-left text-rose-50 shadow-[0_0_28px_rgba(232,32,94,.12)] transition hover:border-rose-500/60 hover:bg-rose-500/15 focus:outline-none focus:ring-2 focus:ring-rose-500/35">
+            <span class="min-w-0">
+              <span class="block truncate text-sm font-extrabold">${escapeHtml(activePipeline.title)}</span>
+              <span class="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-[0.16em] text-orange-300/80">${escapeHtml(activePipeline.badge)}</span>
+            </span>
+            <svg class="h-4 w-4 shrink-0 text-orange-300 transition-transform" data-pipeline-chevron viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div id="pipeline-dropdown-menu" role="group" aria-label="Planilhas" class="hidden absolute right-0 top-full z-50 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border border-white/[0.1] bg-[#101216] p-1.5 shadow-[0_24px_70px_rgba(0,0,0,.58)]">
+            ${Object.values(PIPELINES).map((pipeline) => {
+              const active = pipeline.key === currentPipeline;
+              return `
+                <div class="flex items-center gap-1">
+                <button type="button" aria-pressed="${active}" data-pipeline-tab="${escapeHtml(pipeline.key)}" class="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition ${active ? 'bg-rose-500/15 text-rose-50' : 'text-zinc-300 hover:bg-white/[0.06] hover:text-white'}">
+                  <span class="min-w-0">
+                    <span class="block truncate text-sm font-bold">${escapeHtml(pipeline.title)}</span>
+                    <span class="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-[0.14em] ${active ? 'text-orange-300' : 'text-zinc-600'}">${escapeHtml(pipeline.badge)}</span>
+                  </span>
+                  ${active ? '<span class="h-2 w-2 shrink-0 rounded-full bg-[#E8205E] shadow-[0_0_12px_rgba(232,32,94,.75)]"></span>' : ''}
+                </button>
+                ${pipeline.driver === 'neon' && pipeline.key !== 'real_estate' ? `<button type="button" data-delete-pipeline="${escapeHtml(pipeline.key)}" title="Excluir pipeline" aria-label="Excluir pipeline ${escapeHtml(pipeline.title)}" class="shrink-0 rounded-lg p-2 text-zinc-400 transition hover:bg-rose-500/15 hover:text-rose-300">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="h-4 w-4" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>
+                </button>` : ''}
+                </div>
+              `;
+            }).join('')}
+            <div class="mt-1 border-t border-white/[0.08] pt-1">
+              <button id="add-sheet-link-btn" type="button" class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition text-rose-300 hover:bg-rose-500/15 hover:text-rose-100">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="h-4 w-4 shrink-0" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                <span class="text-sm font-bold">Adicionar nova planilha</span>
               </button>
-            `;
-          }).join('')}
+            </div>
+          </div>
         </nav>
       `;
     }
@@ -292,17 +468,20 @@
       return `
         <header class="sticky top-0 z-30 border-b border-white/[0.07] bg-[#07080a]/88 px-4 py-4 backdrop-blur-xl">
           <div class="mx-auto max-w-[1760px]">
-            <div class="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.025] p-4 shadow-[0_18px_70px_rgba(0,0,0,.24)]">
-              <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-teal-300/55 via-white/15 to-transparent"></div>
+            <div class="relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.025] p-4 shadow-[0_18px_70px_rgba(0,0,0,.24)]">
+              <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-rose-500/70 via-orange-400/40 to-transparent"></div>
               <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div class="min-w-0">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class="h-2 w-2 rounded-full bg-teal-300 shadow-[0_0_18px_rgba(45,212,191,.7)]"></span>
-                    <p class="text-[11px] font-extrabold uppercase tracking-[0.28em] text-teal-200/75">${escapeHtml(config.eyebrow)}</p>
-                    <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500">${escapeHtml(config.badge)}</span>
+                <div class="flex min-w-0 items-center gap-4">
+                  <img src="assets/oi-digital-logo.png" alt="Oi Digital Media" width="72" height="72" class="h-14 w-14 shrink-0 rounded-full border border-rose-500/30 object-cover shadow-[0_0_30px_rgba(232,32,94,.18)] sm:h-[72px] sm:w-[72px]">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="h-2 w-2 rounded-full bg-[#E8205E] shadow-[0_0_18px_rgba(232,32,94,.75)]"></span>
+                      <p class="text-[11px] font-extrabold uppercase tracking-[0.28em] text-rose-300/90">${escapeHtml(config.eyebrow)}</p>
+                      <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500">${escapeHtml(config.badge)}</span>
+                    </div>
+                    <h1 class="mt-2 truncate text-2xl font-extrabold tracking-tight text-zinc-50">${escapeHtml(config.heading)}</h1>
+                    <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-500">${escapeHtml(config.subtitle)}</p>
                   </div>
-                  <h1 class="mt-2 text-2xl font-extrabold tracking-tight text-zinc-50">${escapeHtml(config.heading)}</h1>
-                  <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-500">${escapeHtml(config.subtitle)}</p>
                 </div>
                 <div class="flex flex-col gap-3 lg:items-end">
                   <div class="flex flex-wrap items-center justify-end gap-2">
@@ -322,15 +501,37 @@
       const config = pipelineConfig();
       return `
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          ${config.supportsImport ? '<button id="open-import" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-zinc-100 transition hover:border-teal-300/40 hover:bg-teal-300/10">Importar CSV</button>' : ''}
+          ${config.supportsImport ? '<button id="open-import" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-zinc-100 transition hover:border-orange-400/45 hover:bg-orange-400/10">Importar CSV</button>' : ''}
           <div class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-zinc-400">Leads visíveis <span class="ml-2 font-extrabold text-zinc-50">${visibleCount}</span></div>
         </div>
       `;
     }
 
     function bindPipelineTabs() {
+      pipelineDropdownAbortController?.abort();
+      pipelineDropdownAbortController = new AbortController();
+      const { signal } = pipelineDropdownAbortController;
+      const toggle = document.getElementById('pipeline-dropdown-toggle');
+      const menu = document.getElementById('pipeline-dropdown-menu');
+      const chevron = toggle?.querySelector('[data-pipeline-chevron]');
+
+      const closeDropdown = () => {
+        menu?.classList.add('hidden');
+        toggle?.setAttribute('aria-expanded', 'false');
+        chevron?.classList.remove('rotate-180');
+      };
+
+      toggle?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const shouldOpen = menu.classList.contains('hidden');
+        menu.classList.toggle('hidden', !shouldOpen);
+        toggle.setAttribute('aria-expanded', String(shouldOpen));
+        chevron?.classList.toggle('rotate-180', shouldOpen);
+      }, { signal });
+
       document.querySelectorAll('[data-pipeline-tab]').forEach((button) => {
         button.addEventListener('click', () => {
+          closeDropdown();
           if (button.dataset.pipelineTab === currentPipeline) return;
           currentPipeline = button.dataset.pipelineTab;
           selectedLeadId = null;
@@ -339,55 +540,290 @@
           isSyncing = false;
           resetFilters();
           loadLeads();
-        });
+        }, { signal });
       });
+
+      document.getElementById('add-sheet-link-btn')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        closeDropdown();
+        renderSheetModal();
+      }, { signal });
+
+      document.addEventListener('click', closeDropdown, { signal });
+      document.querySelectorAll('[data-delete-pipeline]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          deletePipeline(button.dataset.deletePipeline);
+        }, { signal });
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeDropdown();
+      }, { signal });
 
       const logoutButton = document.getElementById('logout-button');
       if (logoutButton) {
         logoutButton.addEventListener('click', async () => {
-          try {
-            await fetch(`${API_URL}?action=logout`, { method: 'POST', credentials: 'same-origin' });
-          } catch (_) {
-            // segue pro login mesmo se a chamada falhar
-          }
-          renderLoginScreen();
-        });
+          return withProcessing('Encerrando a sessão...', async () => {
+            try {
+              await fetch(`${API_URL}?action=logout`, { method: 'POST', credentials: 'same-origin' });
+            } catch (_) {
+              // segue pro login mesmo se a chamada falhar
+            }
+            renderLoginScreen();
+          });
+        }, { signal });
       }
     }
 
-    async function saveColumnLabels() {
+    async function saveColumnLabels(options = {}) {
       const response = await apiFetch(apiEndpoint('update_column_labels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ column_labels: columnLabels })
+        body: JSON.stringify({
+          statuses: currentStatuses,
+          column_labels: columnLabels,
+          ...(options.moveRemovedLeadsTo ? { move_removed_leads_to: options.moveRemovedLeadsTo } : {})
+        })
       });
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Erro ao salvar nomes das colunas');
-      columnLabels = { ...labelsFromStatuses(currentStatuses), ...(data.column_labels || {}) };
+      if (Array.isArray(data.statuses) && data.statuses.length) {
+        currentStatuses = [...data.statuses];
+        pipelineConfig().statuses = [...data.statuses];
+        if (Array.isArray(pipelineConfig().boardStatuses)) {
+          pipelineConfig().boardStatuses = [...data.statuses];
+        }
+      }
+      columnLabels = {
+        ...labelsFromStatuses(currentStatuses),
+        ...(data.column_labels || {})
+      };
       return columnLabels;
     }
 
-    async function loadLeads() {
-      const config = pipelineConfig();
-      app.innerHTML = `<div class="app-shell flex min-h-screen items-center justify-center text-sm font-medium text-zinc-500">Carregando ${escapeHtml(config.title)}...</div>`;
+    async function deletePipeline(key) {
+      if (isProcessing()) return;
+      const target = PIPELINES[key];
+      if (!target || target.driver !== 'neon' || key === 'real_estate') return;
+      const confirmed = window.confirm(`Excluir o pipeline “${target.title}”?\n\nTodos os leads, status e notas desse pipeline serão apagados do CRM para todos os usuários. Esta ação não pode ser desfeita pelo CRM.\n\nA planilha do Google Sheets não será alterada.`);
+      if (!confirmed) return;
+      await withProcessing(`Excluindo o pipeline “${target.title}” e seus leads...`, async () => {
+        try {
+          const response = await apiFetch(`${API_URL}?action=delete_pipeline`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pipeline: key, confirmed: true })
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.error || 'Não foi possível excluir o pipeline.');
+          delete PIPELINES[key];
+          syncError = '';
+          syncMessage = `Pipeline “${target.title}” excluído. A planilha do Google Sheets foi preservada.`;
+          if (currentPipeline === key) {
+            currentPipeline = 'real_estate';
+            selectedLeadId = null;
+            leads = [];
+            resetFilters();
+            await loadLeads({ withinOperation: true });
+          } else {
+            renderCurrentView();
+          }
+        } catch (error) {
+          window.alert(`Não foi possível concluir a exclusão: ${error.message}`);
+        }
+      });
+    }
 
-      try {
-        const response = await apiFetch(apiEndpoint('get_leads'));
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Erro ao carregar leads');
+    async function createNewColumn() {
+      if (isProcessing()) return;
+      if (isColumnOperationPending) return;
+      const input = window.prompt('Nome da nova coluna:');
+      if (input === null) return;
 
-        hydrateData(data);
-        resetColumnLimits();
+      const status = input.trim();
+      if (!status) {
+        window.alert('Digite um nome válido para a coluna.');
+        return;
+      }
+      if (currentStatuses.some((item) => normalize(item) === normalize(status))) {
+        window.alert('Já existe uma coluna com esse nome.');
+        return;
+      }
 
-        if (config.supportsSync && isSyncStale(lastSynced)) {
-          await syncPipeline({ automatic: true });
-          return;
+      return withProcessing(`Criando a coluna “${status}”...`, async () => {
+        const previousBoardStatuses = Array.isArray(pipelineConfig().boardStatuses) ? [...pipelineConfig().boardStatuses] : null;
+        currentStatuses.push(status);
+        columnLabels[status] = status;
+        columnLimits[status] = PAGE_SIZE;
+        if (previousBoardStatuses) {
+          pipelineConfig().boardStatuses = [...currentStatuses];
+        }
+        isColumnOperationPending = true;
+        renderCRM();
+
+        try {
+          await saveColumnLabels();
+          syncError = '';
+          syncMessage = `Coluna “${status}” criada.`;
+        } catch (error) {
+          currentStatuses = currentStatuses.filter((item) => item !== status);
+          if (previousBoardStatuses) pipelineConfig().boardStatuses = previousBoardStatuses;
+          delete columnLabels[status];
+          delete columnLimits[status];
+          syncMessage = '';
+          syncError = `Não foi possível criar a coluna: ${error.message}`;
+        } finally {
+          isColumnOperationPending = false;
+        }
+        renderCRM();
+      });
+    }
+
+    async function removeColumn(status) {
+      if (isProcessing()) return;
+      if (isColumnOperationPending) return;
+      if (!currentStatuses.includes(status)) return;
+      if (currentStatuses.length <= 1) {
+        window.alert('O quadro precisa ter pelo menos uma coluna.');
+        return;
+      }
+
+      const arrivalStatus = currentStatuses.find((item) => item !== status);
+      const affectedLeads = leads.filter((lead) => (lead.Status || 'Novo') === status).length;
+      const arrivalLabel = statusLabel(arrivalStatus);
+      const confirmation = affectedLeads
+        ? `Remover a coluna “${statusLabel(status)}”? Os ${affectedLeads} lead(s) serão enviados para “${arrivalLabel}”.`
+        : `Remover a coluna “${statusLabel(status)}” para todos os usuários?`;
+      if (!window.confirm(confirmation)) return;
+
+      return withProcessing('Movendo os leads e removendo a coluna...', async () => {
+        const removedLabel = statusLabel(status);
+        const previousStatuses = [...currentStatuses];
+        const previousBoardStatuses = Array.isArray(pipelineConfig().boardStatuses) ? [...pipelineConfig().boardStatuses] : null;
+        const previousLabels = { ...columnLabels };
+        const previousLeadStatuses = leads.map((lead) => ({ lead, status: lead.Status || 'Novo' }));
+        currentStatuses = currentStatuses.filter((item) => item !== status);
+        leads.forEach((lead) => {
+          if ((lead.Status || 'Novo') === status) lead.Status = arrivalStatus;
+        });
+        delete columnLabels[status];
+        delete columnLimits[status];
+        if (previousBoardStatuses) {
+          pipelineConfig().boardStatuses = [...currentStatuses];
+        }
+        isColumnOperationPending = true;
+        renderCRM();
+
+        try {
+          await saveColumnLabels({ moveRemovedLeadsTo: arrivalStatus });
+          syncError = '';
+          syncMessage = `Coluna “${removedLabel}” removida.`;
+        } catch (error) {
+          currentStatuses = previousStatuses;
+          if (previousBoardStatuses) pipelineConfig().boardStatuses = previousBoardStatuses;
+          columnLabels = previousLabels;
+          previousLeadStatuses.forEach((entry) => { entry.lead.Status = entry.status; });
+          syncMessage = '';
+          syncError = `Não foi possível remover a coluna: ${error.message}`;
+        } finally {
+          isColumnOperationPending = false;
+        }
+        renderCRM();
+      });
+    }
+
+    async function moveColumn(status, direction) {
+      if (isProcessing()) return;
+      return withProcessing('Salvando a ordem das colunas...', async () => {
+        if (isColumnOperationPending) return;
+        const currentIndex = currentStatuses.indexOf(status);
+        const targetIndex = currentIndex + direction;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= currentStatuses.length) return;
+
+        const previousStatuses = [...currentStatuses];
+        const previousBoardStatuses = Array.isArray(pipelineConfig().boardStatuses) ? [...pipelineConfig().boardStatuses] : null;
+
+        const item = currentStatuses.splice(currentIndex, 1)[0];
+        currentStatuses.splice(targetIndex, 0, item);
+        if (previousBoardStatuses) {
+          pipelineConfig().boardStatuses = [...currentStatuses];
         }
 
-        renderCurrentView();
-      } catch (error) {
-        renderLoadError(error.message);
-      }
+        isColumnOperationPending = true;
+        renderCRM();
+
+        try {
+          await saveColumnLabels();
+          syncError = '';
+          syncMessage = 'Ordem das colunas atualizada para todos os usuários.';
+        } catch (error) {
+          currentStatuses = previousStatuses;
+          if (previousBoardStatuses) pipelineConfig().boardStatuses = previousBoardStatuses;
+          syncMessage = '';
+          syncError = `Não foi possível reordenar as colunas: ${error.message}`;
+        } finally {
+          isColumnOperationPending = false;
+        }
+        renderCRM();
+      });
+    }
+
+    async function moveColumnTo(status, targetStatus, placeAfter = false) {
+      if (isProcessing()) return;
+      return withProcessing('Salvando a ordem das colunas...', async () => {
+        if (isColumnOperationPending || status === targetStatus) return;
+        const previousStatuses = [...currentStatuses];
+        const previousBoardStatuses = Array.isArray(pipelineConfig().boardStatuses) ? [...pipelineConfig().boardStatuses] : null;
+
+        const nextStatuses = currentStatuses.filter((item) => item !== status);
+        let targetIndex = nextStatuses.indexOf(targetStatus);
+        if (targetIndex < 0) return;
+        if (placeAfter) targetIndex += 1;
+        nextStatuses.splice(targetIndex, 0, status);
+        if (nextStatuses.every((item, index) => item === currentStatuses[index])) return;
+
+        currentStatuses = nextStatuses;
+        if (previousBoardStatuses) {
+          pipelineConfig().boardStatuses = [...currentStatuses];
+        }
+
+        isColumnOperationPending = true;
+        renderCRM();
+        try {
+          await saveColumnLabels();
+          syncError = '';
+          syncMessage = 'Ordem das colunas atualizada para todos os usuários.';
+        } catch (error) {
+          currentStatuses = previousStatuses;
+          if (previousBoardStatuses) pipelineConfig().boardStatuses = previousBoardStatuses;
+          syncMessage = '';
+          syncError = `Não foi possível reordenar as colunas: ${error.message}`;
+        } finally {
+          isColumnOperationPending = false;
+        }
+        renderCRM();
+      });
+    }
+
+    async function loadLeads(options = {}) {
+      return withProcessing('Carregando os dados do quadro...', async () => {
+        const config = pipelineConfig();
+        app.innerHTML = `<div class="app-shell flex min-h-screen items-center justify-center text-sm font-medium text-zinc-500">Carregando ${escapeHtml(config.title)}...</div>`;
+
+        try {
+          const response = await apiFetch(apiEndpoint('get_leads'));
+          const data = await response.json();
+          if (!data.success) throw new Error(data.error || 'Erro ao carregar leads');
+
+          hydrateData(data);
+          resetColumnLimits();
+
+          // Abrir o quadro lê somente o Neon. A sincronização é uma ação explícita.
+
+          renderCurrentView();
+        } catch (error) {
+          renderLoadError(error.message);
+        }
+      }, { allowNested: options.withinOperation === true });
     }
 
     function renderLoadError(message) {
@@ -404,7 +840,7 @@
 
     function renderCurrentView() {
       if (pipelineConfig().supportsImport && leads.length === 0) {
-        renderImportScreen();
+        renderImportScreen(syncError || syncMessage);
         return;
       }
 
@@ -412,30 +848,33 @@
     }
 
     async function syncPipeline(options = {}) {
-      if (!pipelineConfig().supportsSync) return;
+      if (isProcessing()) return;
+      return withProcessing('Sincronizando os dados com a planilha...', async () => {
+        if (!pipelineConfig().supportsSync) return;
 
-      isSyncing = true;
-      syncError = '';
-      syncMessage = options.automatic ? 'Sincronizando automaticamente com a planilha...' : 'Sincronizando com a planilha...';
-      renderCRM();
-
-      try {
-        const response = await apiFetch(apiEndpoint('sync'), { method: 'POST' });
-        const text = await response.text();
-        const data = JSON.parse(text);
-        if (!data.success) throw new Error(data.error || 'Erro no sync');
-
-        hydrateData(data);
-        resetColumnLimits();
+        isSyncing = true;
         syncError = '';
-        syncMessage = `Sincronizado: ${data.imported || 0} linhas válidas (${data.new || 0} novos, ${data.updated || 0} atualizados, ${data.skipped || 0} ignorados).`;
-      } catch (error) {
-        syncMessage = '';
-        syncError = `Sync falhou: ${error.message}. Mantendo os dados salvos.`;
-      } finally {
-        isSyncing = false;
+        syncMessage = options.automatic ? 'Sincronizando automaticamente com a planilha...' : 'Sincronizando com a planilha...';
         renderCRM();
-      }
+
+        try {
+          const response = await apiFetch(apiEndpoint('sync'), { method: 'POST' });
+          const text = await response.text();
+          const data = JSON.parse(text);
+          if (!data.success) throw new Error(data.error || 'Erro no sync');
+
+          hydrateData(data);
+          resetColumnLimits();
+          syncError = '';
+          syncMessage = `Sincronizado: ${data.imported || 0} linhas válidas (${data.new || 0} novos, ${data.updated || 0} atualizados, ${data.skipped || 0} ignorados).`;
+        } catch (error) {
+          syncMessage = '';
+          syncError = `Sync falhou: ${error.message}. Mantendo os dados salvos.`;
+        } finally {
+          isSyncing = false;
+          renderCRM();
+        }
+      });
     }
 
     function renderImportScreen(message = '') {
@@ -446,16 +885,17 @@
             ${renderHeaderShell()}
             <section class="soft-panel mx-auto mt-12 w-full max-w-xl rounded-2xl p-8">
               <div class="mb-7">
-                <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-teal-200/80">Real Estate CRM</p>
+                <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-rose-300/90">Real Estate CRM</p>
                 <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">Nenhum lead importado ainda</h2>
                 <p class="mt-2 text-sm leading-6 text-zinc-400">Importe o CSV para montar o board de leads e iniciar a triagem.</p>
               </div>
               <form id="import-form" class="space-y-5">
                 <input id="csv-file" name="csv" type="file" accept=".csv,text/csv" class="block w-full rounded-xl field-dark px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-zinc-950">
-                <button type="submit" class="w-full rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Importar CSV</button>
+                <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Importar CSV</button>
               </form>
               <p class="mt-5 text-sm leading-6 text-zinc-500">Formato esperado: CSV com headers na primeira linha, separador vírgula.</p>
               <p id="import-message" class="mt-4 text-sm text-zinc-400">${escapeHtml(message)}</p>
+              ${renderSheetRegistration()}
             </section>
           </div>
           <div id="modal-root"></div>
@@ -464,6 +904,7 @@
       `;
       bindPipelineTabs();
       bindImportForm(document.getElementById('import-form'), document.getElementById('import-message'));
+      bindSheetRegistration();
     }
 
     function renderCRM(options = {}) {
@@ -479,9 +920,16 @@
           ${config.supportsSync ? renderSyncPanel() : ''}
           ${renderFilterSection()}
 
-          <main class="thin-scrollbar overflow-x-auto px-4 py-5">
-            <div class="mx-auto flex w-max max-w-[1760px] justify-center gap-4 pb-4 xl:w-full">
-              ${boardStatuses().map((status) => renderColumn(status, visibleLeads.filter((lead) => (lead.Status || 'Novo') === status))).join('')}
+          <main class="px-4 py-5">
+            <div class="mx-auto mb-3 flex max-w-[1760px] justify-end">
+              <button id="add-column" type="button" title="Criar nova coluna" aria-label="Criar nova coluna" class="group inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/[0.08] text-rose-100 shadow-[0_0_22px_rgba(232,32,94,.08)] transition hover:border-orange-400/55 hover:bg-orange-400/[0.1] hover:text-orange-100">
+                <span class="text-xl leading-none transition group-hover:rotate-90" aria-hidden="true">+</span>
+              </button>
+            </div>
+            <div class="thin-scrollbar overflow-x-auto">
+              <div class="mx-auto flex w-max max-w-[1760px] items-start justify-center gap-4 pb-4 xl:w-full">
+                ${boardStatuses().map((status) => renderColumn(status, visibleLeads.filter((lead) => (lead.Status || 'Novo') === status))).join('')}
+              </div>
             </div>
           </main>
         </div>
@@ -512,11 +960,12 @@
             <div>
               <p class="text-xs font-bold uppercase tracking-[0.22em] text-zinc-500">Última sincronização</p>
               <p class="mt-1 text-sm font-semibold text-zinc-200">${escapeHtml(formatDateTime(lastSynced))}</p>
+              ${Array.isArray(pipelineConfig().display?.sheet_names) ? `<p class="mt-1 text-xs text-zinc-400">Abas publicadas: ${escapeHtml(pipelineConfig().display.sheet_names.join(' · '))}</p>` : ''}
               ${lastUpdated ? `<p class="mt-1 text-xs text-zinc-600">Última alteração local: ${escapeHtml(formatDateTime(lastUpdated))}</p>` : ''}
             </div>
             <div class="flex flex-col gap-2 md:items-end">
-              <button id="sync-now" ${isSyncing ? 'disabled' : ''} class="rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200 disabled:cursor-wait disabled:opacity-60">${isSyncing ? 'Sincronizando...' : 'Sincronizar agora'}</button>
-              ${syncMessage ? `<p class="max-w-2xl text-sm text-teal-100">${escapeHtml(syncMessage)}</p>` : ''}
+              <button id="sync-now" ${isSyncing ? 'disabled' : ''} class="rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white shadow-[0_0_24px_rgba(232,32,94,.14)] transition hover:bg-rose-600 disabled:cursor-wait disabled:opacity-60">${isSyncing ? 'Sincronizando...' : 'Sincronizar agora'}</button>
+              ${syncMessage ? `<p class="max-w-2xl text-sm text-orange-200">${escapeHtml(syncMessage)}</p>` : ''}
               ${syncError ? `<p class="max-w-2xl text-sm text-rose-200">${escapeHtml(syncError)}</p>` : ''}
             </div>
           </div>
@@ -530,8 +979,9 @@
       if (pipelineConfig().driver === 'neon') {
         return `
           <section class="border-b border-white/[0.06] px-4 py-4">
-            <div class="mx-auto grid max-w-[1760px] gap-3 md:grid-cols-[minmax(260px,1fr)_auto]">
+            <div class="mx-auto grid max-w-[1760px] gap-3 md:grid-cols-[minmax(200px,1fr)_280px_auto]">
               <input id="search-filter" type="search" placeholder="${escapeHtml(config.searchPlaceholder)}" value="${escapeHtml(filters.search)}" class="field-dark rounded-xl px-3.5 py-2.5 text-sm">
+              ${renderFilterDropdown('sort', 'Ordenar', filters.sort, SORT_OPTIONS)}
               <button id="clear-filters" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.08]">Limpar</button>
             </div>
           </section>
@@ -547,10 +997,11 @@
 
       return `
         <section class="border-b border-white/[0.06] px-4 py-4">
-          <div class="mx-auto grid max-w-[1760px] gap-3 md:grid-cols-[minmax(260px,1fr)_160px_240px_auto]">
+          <div class="mx-auto grid max-w-[1760px] gap-3 md:grid-cols-2 xl:grid-cols-[minmax(200px,1fr)_140px_200px_280px_auto]">
             <input id="search-filter" type="search" placeholder="${escapeHtml(config.searchPlaceholder)}" value="${escapeHtml(filters.search)}" class="field-dark rounded-xl px-3.5 py-2.5 text-sm">
             ${renderFilterDropdown('tier', 'Tier', filters.tier, tierDropdownOptions)}
             ${renderFilterDropdown('approach', 'Approach', filters.approach, approachDropdownOptions)}
+            ${renderFilterDropdown('sort', 'Ordenar', filters.sort, SORT_OPTIONS)}
             <button id="clear-filters" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.08]">Limpar</button>
           </div>
         </section>
@@ -567,9 +1018,9 @@
           </button>
           <div data-filter-menu class="hidden absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-xl border border-white/[0.09] bg-[#101216] p-1 shadow-[0_22px_60px_rgba(0,0,0,.45)]">
             ${options.map((option) => `
-              <button type="button" data-filter-option data-filter-key="${escapeHtml(filterKey)}" data-filter-value="${escapeHtml(option.value)}" class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${option.value === value ? 'bg-teal-300/10 text-teal-100' : 'text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50'}">
+              <button type="button" data-filter-option data-filter-key="${escapeHtml(filterKey)}" data-filter-value="${escapeHtml(option.value)}" class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${option.value === value ? 'bg-rose-500/10 text-rose-100' : 'text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50'}">
                 <span>${escapeHtml(option.label)}</span>
-                ${option.value === value ? '<span class="h-1.5 w-1.5 rounded-full bg-teal-300"></span>' : ''}
+                ${option.value === value ? '<span class="h-1.5 w-1.5 rounded-full bg-orange-400"></span>' : ''}
               </button>
             `).join('')}
           </div>
@@ -601,12 +1052,12 @@
               const accent = statusAccent(status);
               const selected = status === value;
               return `
-                <button type="button" data-status-option="${escapeHtml(status)}" class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${selected ? 'bg-teal-300/10 text-teal-100' : 'text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50'}">
+                <button type="button" data-status-option="${escapeHtml(status)}" class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${selected ? 'bg-rose-500/10 text-rose-100' : 'text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50'}">
                   <span class="flex min-w-0 items-center gap-2">
                     <span class="h-2 w-2 shrink-0 rounded-full ${accent.dot}"></span>
                     <span class="truncate">${escapeHtml(statusLabel(status))}</span>
                   </span>
-                  ${selected ? '<span class="h-1.5 w-1.5 rounded-full bg-teal-300"></span>' : ''}
+                  ${selected ? '<span class="h-1.5 w-1.5 rounded-full bg-orange-400"></span>' : ''}
                 </button>
               `;
             }).join('')}
@@ -621,17 +1072,31 @@
       const hasMore = columnLeads.length > visibleColumnLeads.length;
       const accent = statusAccent(status);
       const label = columnLabels[status] || status;
+      const statusIndex = currentStatuses.indexOf(status);
+      const canMoveLeft = statusIndex > 0;
+      const canMoveRight = statusIndex >= 0 && statusIndex < currentStatuses.length - 1;
       const labelMarkup = `<input data-column-label="${escapeHtml(status)}" value="${escapeHtml(label)}" class="column-label min-w-0 flex-1 truncate rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-sm font-bold ${accent.text} outline-none transition hover:border-white/10 focus:border-white/15 focus:bg-white/[0.04]">`;
 
       return `
-        <section class="flex h-[calc(100vh-230px)] min-w-[350px] flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-zinc-950/70 shadow-[0_18px_60px_rgba(0,0,0,.22)] backdrop-blur xl:min-w-0">
-          <div class="relative flex items-center justify-between border-b border-white/[0.07] px-4 py-3.5">
+        <section data-drop-column data-status="${escapeHtml(status)}" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" class="flex h-[calc(100vh-230px)] min-w-[350px] flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-zinc-950/70 shadow-[0_18px_60px_rgba(0,0,0,.22)] backdrop-blur transition duration-200 xl:min-w-0">
+          <div class="relative flex flex-wrap items-center justify-between gap-y-3 border-b border-white/[0.07] px-4 py-3.5">
             <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r ${accent.line} via-white/10 to-transparent"></div>
-            <div class="flex min-w-0 items-center gap-2">
+            
+            <div class="flex w-full min-w-0 items-center gap-2">
               <span class="h-2.5 w-2.5 shrink-0 rounded-full ${accent.dot} shadow-[0_0_14px_currentColor]"></span>
               ${labelMarkup}
             </div>
-            <span class="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs font-bold text-zinc-300">${columnLeads.length}</span>
+            
+            <div class="flex shrink-0 items-center gap-1.5">
+              <span data-column-drag-handle="${escapeHtml(status)}" role="button" tabindex="0" aria-label="Arrastar coluna ${escapeHtml(label)} para mudar a ordem" title="Arraste para mudar a ordem" class="cursor-grab select-none rounded-lg border border-white/[0.08] px-1.5 py-1 text-xs font-black tracking-[-0.18em] text-orange-300/75 transition hover:border-orange-400/40 hover:bg-orange-400/10 hover:text-orange-200 active:cursor-grabbing">&#8942;&#8942;</span>
+              <button type="button" data-move-column="${escapeHtml(status)}" data-direction="-1" ${canMoveLeft ? '' : 'disabled'} aria-label="Mover coluna ${escapeHtml(label)} para a esquerda" title="Mover para a esquerda" class="move-column rounded-lg border border-orange-400/15 bg-orange-400/[0.04] px-2 py-1 text-sm font-bold text-orange-300/80 transition hover:border-orange-400/45 hover:bg-orange-400/12 hover:text-orange-100 disabled:cursor-not-allowed disabled:opacity-20">&larr;</button>
+              <button type="button" data-move-column="${escapeHtml(status)}" data-direction="1" ${canMoveRight ? '' : 'disabled'} aria-label="Mover coluna ${escapeHtml(label)} para a direita" title="Mover para a direita" class="move-column rounded-lg border border-orange-400/15 bg-orange-400/[0.04] px-2 py-1 text-sm font-bold text-orange-300/80 transition hover:border-orange-400/45 hover:bg-orange-400/12 hover:text-orange-100 disabled:cursor-not-allowed disabled:opacity-20">&rarr;</button>
+            </div>
+            
+            <div class="flex shrink-0 items-center gap-1.5">
+              <span class="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs font-bold text-zinc-300">${columnLeads.length}</span>
+              <button type="button" data-remove-column="${escapeHtml(status)}" aria-label="Remover coluna ${escapeHtml(label)}" title="Remover coluna" class="remove-column rounded-lg border border-transparent px-2 py-1 text-sm font-bold text-zinc-600 transition hover:border-rose-500/25 hover:bg-rose-500/10 hover:text-rose-300">×</button>
+            </div>
           </div>
           <div class="thin-scrollbar space-y-3 overflow-y-auto p-3">
             ${visibleColumnLeads.map((lead) => renderLeadCard(lead, status)).join('') || '<p class="px-2 py-4 text-sm text-zinc-500">Sem leads</p>'}
@@ -686,13 +1151,18 @@
       return rawValue;
     }
 
+    function safeWebUrl(value) {
+      const url = String(value || '').trim();
+      return /^https?:\/\/[^\s]+$/i.test(url) ? url : '';
+    }
+
     function renderCardLink(label, url, type) {
-      const href = normalizeSocialUrl(type, url);
+      const href = safeWebUrl(normalizeSocialUrl(type, url));
       if (!href) {
         return `<span class="rounded-full border border-white/[0.06] px-2 py-1 text-[11px] font-bold text-zinc-600">${label}</span>`;
       }
 
-      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="card-link rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-bold text-zinc-300 transition hover:border-teal-300/40 hover:text-teal-100">${label}</a>`;
+      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="card-link rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-bold text-zinc-300 transition hover:border-orange-400/45 hover:text-orange-100">${label}</a>`;
     }
 
     function renderSwotList(items, emptyText) {
@@ -712,9 +1182,11 @@
       const swot = splitShortNote(lead.Short_Note);
       const score = lead.Score_Fase1 || lead.Brand_Score || '-';
       const liAudience = lead.LI_Followers || lead.LI_Connections || '-';
+      const isMoving = updatingLeadIds.has(lead.Lead_ID);
 
       return `
-        <article data-lead-id="${escapeHtml(lead.Lead_ID)}" tabindex="0" class="lead-card group w-full cursor-pointer rounded-2xl border border-white/[0.08] ${accent.border} ${classes.glow} border-l-4 bg-[#101216]/92 p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-white/[0.16] hover:bg-[#14171d] focus:outline-none focus:ring-2 focus:ring-teal-200/35">
+        <article data-lead-id="${escapeHtml(lead.Lead_ID)}" draggable="${!isMoving}" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)" aria-busy="${isMoving}" tabindex="0" class="lead-card group relative w-full cursor-grab rounded-2xl border border-white/[0.08] ${accent.border} ${classes.glow} ${isMoving ? 'pointer-events-none animate-pulse opacity-60' : ''} border-l-4 bg-[#101216]/92 p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-rose-500/30 hover:bg-[#14171d] focus:outline-none focus:ring-2 focus:ring-rose-500/35 active:cursor-grabbing">
+          ${isMoving ? '<span class="absolute right-3 top-3 z-10 rounded-full border border-orange-400/25 bg-orange-400/10 px-2 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-orange-200">Movendo...</span>' : ''}
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <h3 class="truncate text-sm font-bold tracking-[-0.01em] text-zinc-50">${escapeHtml(lead.Name)}</h3>
@@ -755,7 +1227,7 @@
           </div>
           <div class="mt-3 grid min-w-0 gap-2 overflow-hidden border-t border-white/[0.07] pt-3">
             <div class="min-w-0 overflow-hidden">
-              <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-teal-300/70">Positivos</p>
+              <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-300/80">Positivos</p>
               ${renderSwotList(swot.positives, 'Sem pontos positivos no Short_Note.')}
             </div>
             <div class="min-w-0 overflow-hidden">
@@ -795,15 +1267,17 @@
       const dateTime = leadField(lead, 'DateTime') || '-';
       const responses = launchResponseEntries(lead).slice(0, 2);
       const utms = launchUtmEntries(lead);
+      const isMoving = updatingLeadIds.has(lead.Lead_ID);
 
       return `
-        <article data-lead-id="${escapeHtml(lead.Lead_ID)}" tabindex="0" class="lead-card group w-full min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08] ${accent.border} border-l-4 bg-[#101216]/92 p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-white/[0.16] hover:bg-[#14171d] focus:outline-none focus:ring-2 focus:ring-teal-200/35">
+        <article data-lead-id="${escapeHtml(lead.Lead_ID)}" draggable="${!isMoving}" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)" aria-busy="${isMoving}" tabindex="0" class="lead-card group relative w-full min-w-0 cursor-grab overflow-hidden rounded-2xl border border-white/[0.08] ${accent.border} ${isMoving ? 'pointer-events-none animate-pulse opacity-60' : ''} border-l-4 bg-[#101216]/92 p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-rose-500/30 hover:bg-[#14171d] focus:outline-none focus:ring-2 focus:ring-rose-500/35 active:cursor-grabbing">
+          ${isMoving ? '<span class="absolute right-3 top-3 z-10 rounded-full border border-orange-400/25 bg-orange-400/10 px-2 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-orange-200">Movendo...</span>' : ''}
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <h3 class="truncate text-sm font-bold tracking-[-0.01em] text-zinc-50">${escapeHtml(name)}</h3>
               <p class="mt-1 truncate text-xs font-medium text-zinc-500">${escapeHtml(email)}</p>
             </div>
-            <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold ring-1 bg-teal-300/10 text-teal-100 ring-teal-300/25">${escapeHtml(score)}</span>
+            <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold ring-1 bg-rose-500/10 text-rose-100 ring-rose-500/25">${escapeHtml(score)}</span>
           </div>
           <div class="mt-4 grid min-w-0 grid-cols-2 gap-2">
             <div class="min-w-0 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.035] px-2.5 py-2">
@@ -830,9 +1304,161 @@
       `;
     }
 
+    function clearDropTargets() {
+      document.querySelectorAll('[data-drop-column]').forEach((column) => column.classList.remove('drop-target-active'));
+    }
+
+    function clearColumnOrderTargets() {
+      document.querySelectorAll('[data-drop-column]').forEach((column) => column.classList.remove('column-order-target', 'column-dragging'));
+    }
+
+    function startColumnPointerDrag(event) {
+      if (isColumnOperationPending || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      const handle = event.currentTarget;
+      const status = handle.dataset.columnDragHandle;
+      const sourceColumn = handle.closest('[data-drop-column]');
+      if (!status || !sourceColumn) return;
+
+      event.preventDefault();
+      handle.setPointerCapture?.(event.pointerId);
+      columnPointerDrag = {
+        pointerId: event.pointerId,
+        status,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+        targetStatus: null,
+        placeAfter: false,
+        handle
+      };
+      sourceColumn.classList.add('column-dragging');
+    }
+
+    function updateColumnPointerDrag(event) {
+      const drag = columnPointerDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (!drag.active && distance < 6) return;
+
+      event.preventDefault();
+      drag.active = true;
+      document.body.style.userSelect = 'none';
+      document.querySelectorAll('[data-drop-column]').forEach((column) => column.classList.remove('column-order-target'));
+
+      const targetColumn = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-drop-column]');
+      if (!targetColumn || targetColumn.dataset.status === drag.status) {
+        drag.targetStatus = null;
+        return;
+      }
+
+      const rect = targetColumn.getBoundingClientRect();
+      drag.targetStatus = targetColumn.dataset.status;
+      drag.placeAfter = event.clientX > rect.left + (rect.width / 2);
+      targetColumn.classList.add('column-order-target');
+    }
+
+    async function finishColumnPointerDrag(event, cancelled = false) {
+      const drag = columnPointerDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+
+      columnPointerDrag = null;
+      document.body.style.userSelect = '';
+      try { drag.handle.releasePointerCapture?.(event.pointerId); } catch (_) {}
+      clearColumnOrderTargets();
+
+      if (!cancelled && drag.active && drag.targetStatus) {
+        await moveColumnTo(drag.status, drag.targetStatus, drag.placeAfter);
+      }
+    }
+
+    function handleDragStart(event) {
+      const card = event.currentTarget;
+      const leadId = card.dataset.leadId;
+      if (!leadId || updatingLeadIds.has(leadId)) {
+        event.preventDefault();
+        return;
+      }
+
+      draggedLeadId = leadId;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', leadId);
+      requestAnimationFrame(() => card.classList.add('lead-card-dragging'));
+    }
+
+    function handleDragEnd(event) {
+      event.currentTarget.classList.remove('lead-card-dragging');
+      draggedLeadId = null;
+      clearDropTargets();
+      dragJustEnded = true;
+      setTimeout(() => { dragJustEnded = false; }, 0);
+    }
+
+    function handleDragOver(event) {
+      if (!draggedLeadId) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      clearDropTargets();
+      event.currentTarget.classList.add('drop-target-active');
+    }
+
+    function handleDragLeave(event) {
+      if (!event.currentTarget.contains(event.relatedTarget)) {
+        event.currentTarget.classList.remove('drop-target-active', 'column-order-target');
+      }
+    }
+
+    async function handleDrop(event) {
+      event.preventDefault();
+      const newStatus = event.currentTarget.dataset.status;
+      const leadId = event.dataTransfer.getData('text/plain') || draggedLeadId;
+      clearDropTargets();
+      if (!leadId || !newStatus) return;
+      await moveLeadToStatus(leadId, newStatus);
+    }
+
+    async function moveLeadToStatus(leadId, newStatus) {
+      if (isProcessing()) return;
+      return withProcessing(`Movendo o lead para “${statusLabel(newStatus)}”...`, async () => {
+        const lead = getLead(leadId);
+        if (!lead || updatingLeadIds.has(leadId)) return;
+
+        const previousStatus = lead.Status || 'Novo';
+        if (previousStatus === newStatus) return;
+
+        const endpoint = apiEndpoint('update_lead');
+        const payload = { Lead_ID: leadId, Status: newStatus };
+        updatingLeadIds.add(leadId);
+        lead.Status = newStatus;
+        syncError = '';
+        syncMessage = `Movendo lead para “${statusLabel(newStatus)}”...`;
+        renderCRM();
+
+        try {
+          const response = await apiFetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.error || 'Erro ao atualizar status');
+          syncMessage = `Lead movido para “${statusLabel(newStatus)}”.`;
+        } catch (error) {
+          lead.Status = previousStatus;
+          syncMessage = '';
+          syncError = `Não foi possível mover o lead: ${error.message}`;
+        } finally {
+          updatingLeadIds.delete(leadId);
+          draggedLeadId = null;
+          renderCRM();
+        }
+      });
+    }
+
     function bindFilters() {
       document.querySelectorAll('.lead-card').forEach((card) => {
-        card.addEventListener('click', () => openLeadModal(card.dataset.leadId));
+        card.addEventListener('click', () => {
+          if (!dragJustEnded) openLeadModal(card.dataset.leadId);
+        });
         card.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -846,6 +1472,7 @@
       });
 
       document.querySelectorAll('.column-label').forEach((input) => {
+        input.dataset.savedLabel = input.value;
         input.addEventListener('click', (event) => event.stopPropagation());
         input.addEventListener('input', (event) => {
           const status = event.target.dataset.columnLabel;
@@ -858,16 +1485,23 @@
           }
         });
         input.addEventListener('blur', async (event) => {
+          if (isProcessing()) return;
           const status = event.target.dataset.columnLabel;
           if (!event.target.value.trim()) {
             columnLabels[status] = status;
             event.target.value = columnLabels[status];
           }
-          try {
-            await saveColumnLabels();
-          } catch (error) {
-            event.target.title = error.message;
-          }
+          if (input.value === input.dataset.savedLabel) return;
+          await withProcessing('Salvando o nome da coluna...', async () => {
+            try {
+              await saveColumnLabels();
+              input.dataset.savedLabel = input.value;
+            } catch (error) {
+              columnLabels[status] = input.dataset.savedLabel;
+              input.value = input.dataset.savedLabel;
+              window.alert(`Não foi possível salvar o nome: ${error.message}`);
+            }
+          });
         });
       });
 
@@ -876,6 +1510,29 @@
           const status = button.dataset.loadMore;
           columnLimits[status] = getColumnLimit(status) + PAGE_SIZE;
           renderCRM();
+        });
+      });
+
+      document.getElementById('add-column')?.addEventListener('click', createNewColumn);
+      document.querySelectorAll('[data-column-drag-handle]').forEach((handle) => {
+        handle.addEventListener('pointerdown', startColumnPointerDrag);
+        handle.addEventListener('pointermove', updateColumnPointerDrag);
+        handle.addEventListener('pointerup', (event) => finishColumnPointerDrag(event));
+        handle.addEventListener('pointercancel', (event) => finishColumnPointerDrag(event, true));
+        handle.addEventListener('lostpointercapture', (event) => {
+          if (columnPointerDrag?.pointerId === event.pointerId) finishColumnPointerDrag(event, true);
+        });
+      });
+      document.querySelectorAll('[data-remove-column]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          removeColumn(button.dataset.removeColumn);
+        });
+      });
+      document.querySelectorAll('[data-move-column]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          moveColumn(button.dataset.moveColumn, Number(button.dataset.direction));
         });
       });
 
@@ -935,7 +1592,7 @@
       const root = document.getElementById('modal-root');
       root.innerHTML = `
         <div class="fixed inset-0 z-40 overflow-y-auto bg-black/72 p-4 backdrop-blur-md">
-          <div class="mx-auto my-6 max-w-5xl overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0d0f13] shadow-[0_30px_100px_rgba(0,0,0,.55)]">
+          <div class="mx-auto my-6 max-w-5xl overflow-hidden rounded-2xl border border-rose-500/15 bg-[#0d0f13] shadow-[0_30px_100px_rgba(0,0,0,.55),0_0_50px_rgba(232,32,94,.08)]">
             <div class="flex items-start justify-between gap-4 border-b border-white/[0.07] bg-white/[0.025] p-6">
               <div>
                 <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">${escapeHtml(lead.Name)}</h2>
@@ -985,7 +1642,7 @@
             <section class="border-b border-white/[0.07] p-6">
               <div class="mb-3 flex items-center justify-between gap-3">
                 <h3 class="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">Observação</h3>
-                <button data-save-field="Observação" class="rounded-xl bg-teal-300 px-4 py-2 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Salvar</button>
+                <button data-save-field="Observação" class="rounded-xl bg-[#E8205E] px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-600">Salvar</button>
               </div>
               <textarea id="observacao-input" rows="4" class="field-dark w-full rounded-xl px-3 py-2 text-sm">${escapeHtml(leadField(lead, 'Observação'))}</textarea>
             </section>
@@ -1006,7 +1663,7 @@
 
       root.innerHTML = `
         <div class="fixed inset-0 z-40 overflow-y-auto bg-black/72 p-4 backdrop-blur-md">
-          <div class="mx-auto my-6 max-w-5xl overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0d0f13] shadow-[0_30px_100px_rgba(0,0,0,.55)]">
+          <div class="mx-auto my-6 max-w-5xl overflow-hidden rounded-2xl border border-rose-500/15 bg-[#0d0f13] shadow-[0_30px_100px_rgba(0,0,0,.55),0_0_50px_rgba(232,32,94,.08)]">
             <div class="flex items-start justify-between gap-4 border-b border-white/[0.07] bg-white/[0.025] p-6">
               <div>
                 <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">${escapeHtml(name)}</h2>
@@ -1072,7 +1729,7 @@
             <label class="flex-1 text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">Status
               ${renderStatusDropdown(lead.Status || 'Novo')}
             </label>
-            <button data-save-field="Status" class="rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Salvar</button>
+            <button data-save-field="Status" class="rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Salvar</button>
           </div>
         </div>
       `;
@@ -1083,7 +1740,7 @@
         <section class="p-6">
           <div class="mb-3 flex items-center justify-between gap-3">
             <h3 class="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">Notas internas</h3>
-            <button data-save-field="Internal_Notes" class="rounded-xl bg-teal-300 px-4 py-2 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Salvar</button>
+            <button data-save-field="Internal_Notes" class="rounded-xl bg-[#E8205E] px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-600">Salvar</button>
           </div>
           <textarea id="notes-input" rows="4" class="field-dark w-full rounded-xl px-3 py-2 text-sm">${escapeHtml(lead.Internal_Notes)}</textarea>
           <p id="modal-message" class="mt-3 text-sm text-zinc-400"></p>
@@ -1097,7 +1754,7 @@
           <div class="flex flex-col gap-3 rounded-2xl border border-rose-300/15 bg-rose-300/[0.045] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 class="text-xs font-bold uppercase tracking-[0.2em] text-rose-200">Excluir lead</h3>
-              <p class="mt-2 text-sm leading-6 text-zinc-400">Remove este lead do CRM Lançamento Maio 2026. A planilha do Google Sheets não será alterada.</p>
+              <p class="mt-2 text-sm leading-6 text-zinc-400">Remove este lead do CRM ${escapeHtml(pipelineConfig().title)}. A planilha do Google Sheets não será alterada.</p>
             </div>
             <button id="delete-lead" type="button" class="shrink-0 rounded-xl border border-rose-300/25 bg-rose-300/10 px-4 py-2 text-sm font-bold text-rose-100 transition hover:bg-rose-300/18">Excluir lead</button>
           </div>
@@ -1141,8 +1798,9 @@
     }
 
     function linkLine(label, url, text) {
+      url = safeWebUrl(url);
       if (!url) return `<p class="mt-2 text-sm text-zinc-600">${escapeHtml(label)}: -</p>`;
-      return `<p class="mt-2 break-words text-sm text-zinc-300">${escapeHtml(label)}: <a class="font-semibold text-teal-200 underline decoration-teal-500/35 underline-offset-4 hover:text-teal-100" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text || url)}</a></p>`;
+      return `<p class="mt-2 break-words text-sm text-zinc-300">${escapeHtml(label)}: <a class="font-semibold text-orange-300 underline decoration-rose-500/40 underline-offset-4 hover:text-orange-200" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text || url)}</a></p>`;
     }
 
     function closeModal() {
@@ -1151,6 +1809,7 @@
     }
 
     async function saveField(field) {
+      if (isProcessing()) return;
       const lead = getLead(selectedLeadId);
       if (!lead) return;
 
@@ -1159,28 +1818,31 @@
       if (field === 'Observação') payload['Observação'] = document.getElementById('observacao-input').value;
       if (field === 'Internal_Notes') payload.Internal_Notes = document.getElementById('notes-input').value;
 
-      const message = document.getElementById('modal-message');
-      message.textContent = 'Salvando...';
+      return withProcessing(field === 'Status' ? 'Salvando o status...' : field === 'Internal_Notes' ? 'Salvando as notas internas...' : 'Salvando as observações...', async () => {
+        const message = document.getElementById('modal-message');
+        message.textContent = 'Salvando...';
 
-      try {
-        const response = await apiFetch(apiEndpoint('update_lead'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Erro ao salvar');
+        try {
+          const response = await apiFetch(apiEndpoint('update_lead'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.error || 'Erro ao salvar');
 
-        Object.assign(lead, payload);
-        message.textContent = 'Salvo.';
-        renderCRM();
-        openLeadModal(lead.Lead_ID);
-      } catch (error) {
-        message.textContent = error.message;
-      }
+          Object.assign(lead, payload);
+          message.textContent = 'Salvo.';
+          renderCRM();
+          openLeadModal(lead.Lead_ID);
+        } catch (error) {
+          message.textContent = error.message;
+        }
+      });
     }
 
     async function deleteSelectedLead() {
+      if (isProcessing()) return;
       const lead = getLead(selectedLeadId);
       if (!lead) return;
 
@@ -1188,26 +1850,28 @@
       const confirmed = window.confirm(`Excluir "${leadName}" deste CRM? A planilha do Google Sheets não será alterada.`);
       if (!confirmed) return;
 
-      const message = document.getElementById('modal-message');
-      message.textContent = 'Excluindo...';
+      return withProcessing('Excluindo o lead...', async () => {
+        const message = document.getElementById('modal-message');
+        message.textContent = 'Excluindo...';
 
-      try {
-        const response = await apiFetch(apiEndpoint('delete_lead'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ Lead_ID: lead.Lead_ID })
-        });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Erro ao excluir lead');
+        try {
+          const response = await apiFetch(apiEndpoint('delete_lead'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ Lead_ID: lead.Lead_ID })
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.error || 'Erro ao excluir lead');
 
-        leads = leads.filter((item) => item.Lead_ID !== lead.Lead_ID);
-        selectedLeadId = null;
-        syncError = '';
-        syncMessage = 'Lead excluído deste CRM. A planilha não foi alterada.';
-        renderCRM();
-      } catch (error) {
-        message.textContent = error.message;
-      }
+          leads = leads.filter((item) => item.Lead_ID !== lead.Lead_ID);
+          selectedLeadId = null;
+          syncError = '';
+          syncMessage = 'Lead excluído deste CRM. A planilha não foi alterada.';
+          renderCRM();
+        } catch (error) {
+          message.textContent = error.message;
+        }
+      });
     }
 
     async function copyFirstMessage() {
@@ -1223,27 +1887,101 @@
       const root = document.getElementById('import-root');
       root.innerHTML = `
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/72 p-4 backdrop-blur-md">
-          <section class="soft-panel w-full max-w-lg rounded-2xl p-6">
+          <section class="soft-panel max-h-[90vh] overflow-y-auto w-full max-w-lg rounded-2xl p-6">
             <div class="mb-5 flex items-center justify-between">
               <h2 class="text-lg font-semibold text-zinc-50">Importar CSV</h2>
               <button id="close-import" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.08]">Fechar</button>
             </div>
             <form id="import-form" class="space-y-5">
               <input id="csv-file" name="csv" type="file" accept=".csv,text/csv" class="block w-full rounded-xl field-dark px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-zinc-950">
-              <button type="submit" class="w-full rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Importar CSV</button>
+              <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Importar CSV</button>
             </form>
             <p class="mt-5 text-sm leading-6 text-zinc-500">Formato esperado: CSV com headers na primeira linha, separador vírgula.</p>
             <p id="import-message" class="mt-4 text-sm text-zinc-400"></p>
+            ${renderSheetRegistration()}
           </section>
         </div>
       `;
       document.getElementById('close-import').addEventListener('click', () => root.innerHTML = '');
       bindImportForm(document.getElementById('import-form'), document.getElementById('import-message'));
+      bindSheetRegistration();
+    }
+
+    function renderSheetModal() {
+      const root = document.getElementById('modal-root');
+      root.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/72 p-4 backdrop-blur-md">
+          <section class="soft-panel max-h-[90vh] overflow-y-auto w-full max-w-lg rounded-2xl p-6">
+            <div class="mb-5 flex items-center justify-between">
+              <h2 class="text-lg font-semibold text-zinc-50">Nova Planilha</h2>
+              <button id="close-sheet-modal" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.08]">Fechar</button>
+            </div>
+            ${renderSheetRegistration(false)}
+          </section>
+        </div>
+      `;
+      document.getElementById('close-sheet-modal').addEventListener('click', () => root.innerHTML = '');
+      bindSheetRegistration();
+    }
+
+    function renderSheetRegistration(withDivider = true) {
+      const sectionClass = withDivider ? 'class="mt-6 border-t border-white/10 pt-6"' : 'class="pt-2"';
+      return `<section ${sectionClass}>
+        <h3 class="text-lg font-bold text-zinc-100">Adicionar planilha por link</h3>
+        <p class="mt-2 text-sm leading-6 text-zinc-400">Crie uma nova fonte pelo link publicado do Google Sheets. Os dados serão importados e a planilha aparecerá no seletor do CRM.</p>
+        <form id="sheet-registration-form" class="mt-4 space-y-4">
+          <label class="block text-sm text-zinc-300">Nome da planilha
+            <input name="name" required maxlength="120" placeholder="Ex.: Lançamento Claudia" class="field-dark mt-2 w-full rounded-xl px-3.5 py-2.5 text-sm">
+          </label>
+          <label class="block text-sm text-zinc-300">Link publicado
+            <input name="url" type="url" required placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" class="field-dark mt-2 w-full rounded-xl px-3.5 py-2.5 text-sm">
+          </label>
+          <p class="text-xs leading-5 text-zinc-400">Em “Publicar na Web”, publique o documento inteiro. Todas as abas publicadas serão buscadas e unidas por Lead_ID. Cada aba precisa ter essa coluna. Abas novas são descobertas ao sincronizar. Limites: 20 abas, 5.000 leads, 5 MB por aba e 20 MB no total. Abas não publicadas não ficam acessíveis pelo link.</p>
+          <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Adicionar e importar planilha</button>
+        </form>
+        <p id="sheet-registration-message" role="status" class="mt-3 text-sm text-orange-200"></p>
+      </section>`;
+    }
+
+    function bindSheetRegistration() {
+      const form = document.getElementById('sheet-registration-form');
+      if (!form) return;
+      const message = document.getElementById('sheet-registration-message');
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (isProcessing()) return;
+        const name = form.elements.namedItem('name').value.trim();
+        const url = form.elements.namedItem('url').value.trim();
+        if (!name || !url) { message.textContent = 'Informe o nome e o link publicado.'; return; }
+        let registered = false;
+        await withProcessing('Buscando todas as abas publicadas e reunindo os dados dos leads. Aguarde...', async () => {
+          try {
+            const response = await apiFetch(`${API_URL}?action=create_sheet_pipeline`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, url })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Não foi possível cadastrar a planilha.');
+            registered = true;
+            await bootPipelines();
+            currentPipeline = data.pipeline;
+            selectedLeadId = null;
+            resetFilters();
+            syncError = '';
+            syncMessage = `${data.existing ? 'Planilha existente atualizada' : 'Planilha cadastrada'}: ${data.imported} leads reunidos de ${data.sheet_count || 1} aba(s).${data.duplicates ? ` ${data.duplicates} linha(s) com ID repetido consolidada(s).` : ''}`;
+            if (document.getElementById('modal-root')) document.getElementById('modal-root').innerHTML = '';
+            if (document.getElementById('import-root')) document.getElementById('import-root').innerHTML = '';
+            await loadLeads({ withinOperation: true });
+          } catch (error) {
+            message.textContent = (registered ? 'A planilha foi cadastrada, mas houve uma falha ao abrir o quadro. Tente novamente com o mesmo link. ' : '') + error.message;
+          }
+        });
+      });
     }
 
     function bindImportForm(form, messageEl) {
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
+        if (isProcessing()) return;
         const fileInput = form.querySelector('input[type="file"]');
         if (!fileInput.files.length) {
           messageEl.textContent = 'Selecione um CSV.';
@@ -1254,16 +1992,18 @@
         formData.append('csv', fileInput.files[0]);
         messageEl.textContent = 'Importando...';
 
-        try {
-          const response = await apiFetch(apiEndpoint('import'), { method: 'POST', body: formData });
-          const text = await response.text();
-          const data = JSON.parse(text);
-          if (!data.success) throw new Error(data.error || 'Erro no import');
-          messageEl.textContent = `Importado: ${data.imported} leads (${data.new} novos, ${data.updated} atualizados). Recarregando em 5s...`;
-          setTimeout(() => loadLeads(), 5000);
-        } catch (error) {
-          messageEl.textContent = error.message;
-        }
+        return withProcessing('Importando os leads do CSV...', async () => {
+          try {
+            const response = await apiFetch(apiEndpoint('import'), { method: 'POST', body: formData });
+            const text = await response.text();
+            const data = JSON.parse(text);
+            if (!data.success) throw new Error(data.error || 'Erro no import');
+            messageEl.textContent = 'Importação concluída. Atualizando o quadro...';
+            await loadLeads({ withinOperation: true });
+          } catch (error) {
+            messageEl.textContent = error.message;
+          }
+        });
       });
     }
 
@@ -1272,7 +2012,7 @@
         <main class="app-shell flex min-h-screen items-center justify-center px-4 py-10">
           <section class="soft-panel w-full max-w-md rounded-2xl p-8">
             <div class="mb-7">
-              <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-teal-200/80">Real Estate CRM</p>
+              <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-rose-300/90">Real Estate CRM</p>
               <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">Primeiro acesso</h2>
               <p class="mt-2 text-sm leading-6 text-zinc-400">Defina a senha da conta administradora para começar a usar o CRM.</p>
             </div>
@@ -1289,9 +2029,9 @@
                 <label class="mb-1.5 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">Confirmar senha</label>
                 <input id="setup-password-confirm" type="password" minlength="8" required autocomplete="new-password" class="field-dark w-full rounded-xl px-3.5 py-2.5 text-sm">
               </div>
-              <button type="submit" class="w-full rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Definir senha</button>
+              <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Definir senha</button>
             </form>
-            <p id="setup-message" class="mt-4 text-sm ${message ? 'text-teal-200' : 'text-zinc-500'}">${escapeHtml(message)}</p>
+            <p id="setup-message" class="mt-4 text-sm ${message ? 'text-orange-200' : 'text-zinc-500'}">${escapeHtml(message)}</p>
           </section>
         </main>
       `;
@@ -1305,6 +2045,7 @@
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const password = document.getElementById('setup-password').value;
+        if (isProcessing()) return;
         const passwordConfirm = document.getElementById('setup-password-confirm').value;
 
         if (password.length < 8) {
@@ -1321,20 +2062,22 @@
         messageEl.textContent = 'Salvando...';
         messageEl.className = 'mt-4 text-sm text-zinc-500';
 
-        try {
-          const response = await fetch(`${API_URL}?action=setup`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password })
-          });
-          const data = await response.json();
-          if (!data.success) throw new Error(data.error || 'Erro ao definir senha');
-          renderLoginScreen('Senha criada. Faça login para continuar.');
-        } catch (error) {
-          messageEl.textContent = error.message;
-          messageEl.className = 'mt-4 text-sm text-rose-300';
-        }
+        return withProcessing('Salvando a senha de acesso...', async () => {
+          try {
+            const response = await fetch(`${API_URL}?action=setup`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Erro ao definir senha');
+            renderLoginScreen('Senha criada. Faça login para continuar.');
+          } catch (error) {
+            messageEl.textContent = error.message;
+            messageEl.className = 'mt-4 text-sm text-rose-300';
+          }
+        });
       });
     }
 
@@ -1342,8 +2085,9 @@
       app.innerHTML = `
         <main class="app-shell flex min-h-screen items-center justify-center px-4 py-10">
           <section class="soft-panel w-full max-w-md rounded-2xl p-8">
-            <div class="mb-7">
-              <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-teal-200/80">Real Estate CRM</p>
+            <div class="mb-7 text-center">
+              <img src="assets/oi-digital-logo.png" alt="Oi Digital Media" width="88" height="88" class="mx-auto mb-6 h-[88px] w-[88px] rounded-full border border-rose-500/30 object-cover shadow-[0_0_38px_rgba(232,32,94,.22)]">
+              <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-rose-300/90">Real Estate CRM</p>
               <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">Entrar</h2>
               <p class="mt-2 text-sm leading-6 text-zinc-400">Acesse com sua conta de administrador.</p>
             </div>
@@ -1357,12 +2101,12 @@
                 <input id="login-password" type="password" required autocomplete="current-password" class="field-dark w-full rounded-xl px-3.5 py-2.5 text-sm">
               </div>
               <label class="flex items-center gap-2 text-sm text-zinc-400">
-                <input id="login-remember" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-transparent text-teal-300 focus:ring-teal-300/40">
+                <input id="login-remember" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-transparent text-rose-500 focus:ring-rose-500/40">
                 Lembrar de mim
               </label>
-              <button type="submit" class="w-full rounded-xl bg-teal-300 px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:bg-teal-200">Entrar</button>
+              <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Entrar</button>
             </form>
-            <p id="login-message" class="mt-4 text-sm ${message ? 'text-teal-200' : 'text-zinc-500'}">${escapeHtml(message)}</p>
+            <p id="login-message" class="mt-4 text-sm ${message ? 'text-orange-200' : 'text-zinc-500'}">${escapeHtml(message)}</p>
           </section>
         </main>
       `;
@@ -1376,28 +2120,31 @@
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const email = document.getElementById('login-email').value;
+        if (isProcessing()) return;
         const password = document.getElementById('login-password').value;
         const remember = document.getElementById('login-remember').checked;
 
         messageEl.textContent = 'Entrando...';
         messageEl.className = 'mt-4 text-sm text-zinc-500';
 
-        try {
-          const response = await fetch(`${API_URL}?action=login`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, remember })
-          });
-          const data = await response.json();
-          if (!data.success) throw new Error(data.error || 'Erro ao entrar');
+        return withProcessing('Entrando no CRM...', async () => {
+          try {
+            const response = await fetch(`${API_URL}?action=login`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password, remember })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Erro ao entrar');
 
-          await bootPipelines();
-          loadLeads();
-        } catch (error) {
-          messageEl.textContent = error.message;
-          messageEl.className = 'mt-4 text-sm text-rose-300';
-        }
+            await bootPipelines();
+            await loadLeads({ withinOperation: true });
+          } catch (error) {
+            messageEl.textContent = error.message;
+            messageEl.className = 'mt-4 text-sm text-rose-300';
+          }
+        });
       });
     }
 
@@ -1413,7 +2160,7 @@
         subtitle: isNeon
           ? 'Pipeline conectado à planilha publicada, sincronizado por Lead_ID.'
           : 'Pipeline principal com importação manual e status salvos em produção.',
-        badge: isNeon ? 'Sync automático' : 'CSV manual',
+        badge: isNeon ? 'Google Sheets' : 'CSV manual',
         statuses: p.statuses || [],
         boardStatuses: p.board_statuses || null,
         supportsImport: !!p.supports_import,
@@ -1426,33 +2173,39 @@
     }
 
     async function bootPipelines() {
-      try {
-        const response = await fetch(`${API_URL}?action=pipelines`, { credentials: 'same-origin' });
+      return withProcessing('Carregando as planilhas disponíveis...', async () => {
+        const response = await apiFetch(`${API_URL}?action=pipelines`);
         const data = await response.json();
-        if (data.success && Array.isArray(data.pipelines)) {
-          const built = {};
-          data.pipelines.forEach((p) => { built[p.key] = buildPipelineEntry(p); });
-          PIPELINES = built;
+        if (!data.success || !Array.isArray(data.pipelines) || !data.pipelines.length) {
+          throw new Error(data.error || 'Não foi possível carregar as planilhas.');
         }
-      } catch (_) {
-        // fallback: PIPELINES já tem real_estate
-      }
+        const built = {};
+        data.pipelines.forEach((p) => { built[p.key] = buildPipelineEntry(p); });
+        PIPELINES = built;
+        if (!PIPELINES[currentPipeline]) currentPipeline = data.pipelines[0].key;
+      }, { allowNested: true });
     }
 
     async function initApp() {
-      let session;
-      try {
-        const res = await fetch(`${API_URL}?action=session`, { credentials: 'same-origin' });
-        session = await res.json();
-      } catch (_) {
-        session = { authenticated: false, needs_setup: false };
-      }
-
-      if (session.needs_setup) return renderSetupScreen();
-      if (!session.authenticated) return renderLoginScreen();
-
-      await bootPipelines();
-      loadLeads();
+      return withProcessing('Verificando o acesso ao CRM...', async () => {
+        try {
+          const res = await apiFetch(`${API_URL}?action=session`);
+          const session = await res.json();
+          if (!session.success) throw new Error(session.error || 'Falha ao verificar a sessão.');
+          if (session.needs_setup) return renderSetupScreen();
+          if (!session.authenticated) return renderLoginScreen();
+          await bootPipelines();
+          await loadLeads({ withinOperation: true });
+        } catch (error) {
+          app.innerHTML = `<main class="app-shell flex min-h-screen items-center justify-center px-4">
+            <section class="soft-panel max-w-lg rounded-2xl p-6" role="alert">
+              <h1 class="text-xl font-bold">Não foi possível conectar ao CRM</h1>
+              <p class="mt-3 text-sm text-rose-200">${escapeHtml(error.message)}</p>
+              <button id="retry-startup" class="mt-5 rounded-xl bg-[#E8205E] px-4 py-2 text-white">Tentar novamente</button>
+            </section></main>`;
+          document.getElementById('retry-startup').addEventListener('click', initApp);
+        }
+      });
     }
 
     initApp();
