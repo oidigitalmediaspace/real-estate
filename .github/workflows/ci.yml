@@ -1,0 +1,25 @@
+name: Offline regression checks
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax and offline tests
+        run: |
+          php -l api.php
+          php -l config.example.php
+          php -l tests/sheet-registration.php
+          php tests/sheet-registration.php
+      - name: Frontend regression tests
+        run: node tests/crm-regression.cjs

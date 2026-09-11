@@ -5,3 +5,22 @@ pgcheck.php
 info.php
 probe.php
 config.php
+
+# Credenciais e arquivos de execução local
+.env
+.env.*
+!.env.example
+config.local.php
+*.log
+*.sql
+*.dump
+*.bak
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Dados reais: arquivos já rastreados exigem revisão separada.
+/dados/*.csv
+
+# Original duplicado; a imagem usada pelo site está em assets/.
+/Slogan.png

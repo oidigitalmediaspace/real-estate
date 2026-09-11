@@ -19,7 +19,7 @@ $action = isset($_GET['action']) ? $_GET['action'] : '';
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function real_estate_statuses() {
-    return array('Novo', 'Contatado', 'Qualificado', 'Top Agents', 'Em negociação', 'Respondeu', 'Fechado');
+    return array('Novo', 'Em andamento', 'Fechado');
 }
 
 function labels_from_statuses($statuses) {
@@ -102,6 +102,7 @@ function empty_data($pipeline) {
         'leads'        => array(),
         'last_updated' => '',
         'last_synced'  => '',
+        'statuses'     => $pipeline['statuses'],
         'column_labels'=> $pipeline['column_labels']
     );
 }
@@ -135,10 +136,21 @@ function read_data($pipeline) {
         $data['last_synced'] = '';
     }
 
+    if (!isset($data['statuses']) || !is_array($data['statuses']) || empty($data['statuses'])) {
+        $data['statuses'] = $pipeline['statuses'];
+    }
+
+    $defaultLabels = labels_from_statuses($data['statuses']);
     if (!isset($data['column_labels']) || !is_array($data['column_labels'])) {
-        $data['column_labels'] = $pipeline['column_labels'];
+        $data['column_labels'] = $defaultLabels;
     } else {
-        $data['column_labels'] = array_merge($pipeline['column_labels'], $data['column_labels']);
+        $storedLabels = $data['column_labels'];
+        $data['column_labels'] = $defaultLabels;
+        foreach ($data['statuses'] as $status) {
+            if (isset($storedLabels[$status]) && trim((string)$storedLabels[$status]) !== '') {
+                $data['column_labels'][$status] = trim((string)$storedLabels[$status]);
+            }
+        }
     }
 
     return $data;
@@ -195,10 +207,17 @@ function row_to_assoc($headers, $row) {
 }
 
 function fetch_csv($url) {
+    if (function_exists('curl_init')) {
+        $csv = http_request_body($url, 'GET', array('User-Agent: OiDigitalMediaCRM/1.0'), null, true);
+        if (trim($csv) === '') {
+            json_response(array('success' => false, 'error' => 'A planilha publicada está vazia'), 502);
+        }
+        return $csv;
+    }
     $context = stream_context_create(array(
         'http' => array(
             'timeout' => 20,
-            'header'  => "User-Agent: OiDigitalMediaCRM/1.0\r\n"
+            'header'  => "User-Agent: OiDigitalMediaCRM/1.0\r\nConnection: close\r\n"
         )
     ));
 
@@ -323,19 +342,213 @@ function neon_http_config() {
     return $cfg;
 }
 
+function http_request_body($url, $method, $headers, $body = null, $followRedirects = false, $maxBytes = 0) {
+    $handle = curl_init($url);
+    $options = array(
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_FOLLOWLOCATION => $followRedirects,
+        CURLOPT_MAXREDIRS => 5,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2
+    );
+    // Usa os certificados confiáveis do Windows sem desativar a validação TLS.
+    if (PHP_OS_FAMILY === 'Windows' && defined('CURLSSLOPT_NATIVE_CA')) {
+        $options[CURLOPT_SSL_OPTIONS] = CURLSSLOPT_NATIVE_CA;
+    }
+    if ($body !== null) $options[CURLOPT_POSTFIELDS] = $body;
+    $buffer = '';
+    $tooLarge = false;
+    if ($maxBytes > 0) {
+        $options[CURLOPT_WRITEFUNCTION] = function ($handle, $chunk) use (&$buffer, &$tooLarge, $maxBytes) {
+            if (strlen($buffer) + strlen($chunk) > $maxBytes) { $tooLarge = true; return 0; }
+            $buffer .= $chunk;
+            return strlen($chunk);
+        };
+    }
+    curl_setopt_array($handle, $options);
+    $raw = curl_exec($handle);
+    $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    if ($tooLarge) throw new InvalidArgumentException('A planilha excede o limite de 5 MB para cadastro.');
+    if ($raw === false) {
+        throw new Exception('Falha de conexão com o serviço. Não foi possível confirmar a operação; recarregue os dados antes de repetir uma alteração.');
+    }
+    if ($status < 200 || $status >= 300) {
+        throw new Exception('O serviço respondeu com erro HTTP ' . $status . '.');
+    }
+    return $maxBytes > 0 ? $buffer : $raw;
+}
+
+function published_sheet_url($url) {
+    $parts = parse_url(trim((string)$url));
+    if (!$parts || ($parts['scheme'] ?? '') !== 'https' || strtolower($parts['host'] ?? '') !== 'docs.google.com'
+        || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])
+        || !preg_match('~^/spreadsheets/d/e/([A-Za-z0-9_-]+)/pub(?:html)?$~', $parts['path'] ?? '', $match)) {
+        throw new InvalidArgumentException('Use o link do Google Sheets em Arquivo > Compartilhar > Publicar na Web.');
+    }
+    parse_str($parts['query'] ?? '', $query);
+    $params = array('output' => 'csv');
+    if (isset($query['gid'])) {
+        if (!is_string($query['gid']) || !ctype_digit($query['gid'])) throw new InvalidArgumentException('A aba indicada no link é inválida.');
+        $params['gid'] = $query['gid'];
+        $params['single'] = 'true';
+    }
+    return 'https://docs.google.com/spreadsheets/d/e/' . $match[1] . '/pub?' . http_build_query($params);
+}
+
+function published_workbook_url($url) {
+    return explode('?', published_sheet_url($url))[0] . '?output=csv';
+}
+
+function discover_published_tabs($html, $source) {
+    $base = explode('?', published_workbook_url($source))[0];
+    preg_match_all('/items\.push\(\{name:\s*("(?:\\\\.|[^"\\\\])*").*?\bgid:\s*"(\d+)"/s', $html, $matches, PREG_SET_ORDER);
+    $tabs = array();
+    foreach ($matches as $match) {
+        $name = json_decode($match[1], true);
+        $gid = $match[2];
+        $tabs[$gid] = array('name' => is_string($name) ? $name : 'Aba ' . $gid, 'url' => $base . '?output=csv&gid=' . $gid . '&single=true');
+    }
+    // Algumas publicações usam um menu HTML em vez de items.push.
+    if (!$tabs) {
+        preg_match_all('/<li\b[^>]*id=["\']sheet-button-(\d+)["\'][^>]*>(.*?)<\/li>/s', $html, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) $tabs[$match[1]] = array('name' => trim(html_entity_decode(strip_tags($match[2]), ENT_QUOTES, 'UTF-8')), 'url' => $base . '?output=csv&gid=' . $match[1] . '&single=true');
+    }
+    if (!$tabs) throw new InvalidArgumentException('Não foi possível identificar as abas publicadas. Publique o documento inteiro em “Publicar na Web” e tente novamente.');
+    if (count($tabs) > 20) throw new InvalidArgumentException('Limite de 20 abas publicadas por planilha.');
+    return array_values($tabs);
+}
+
+function merge_published_tabs($tabs) {
+    $rows = array(); $headers = array(); $duplicates = 0;
+    foreach ($tabs as $tab) {
+        $parsed = $tab['parsed'];
+        $duplicates += $parsed['duplicates'];
+        foreach ($parsed['headers'] as $header) $headers[$header] = true;
+        foreach ($parsed['rows'] as $row) {
+            $id = $row['Lead_ID'];
+            if (!isset($rows[$id])) $rows[$id] = array('Lead_ID' => $id);
+            foreach ($row as $field => $value) {
+                if ($field === 'Lead_ID') continue;
+                if (!isset($rows[$id][$field]) || trim($rows[$id][$field]) === '') {
+                    $rows[$id][$field] = $value;
+                } elseif (trim($value) !== '' && $rows[$id][$field] !== $value) {
+                    // Não apaga respostas diferentes que usam o mesmo título em outras abas.
+                    $alias = $tab['name'] . ' — ' . $field;
+                    $rows[$id][$alias] = $value;
+                    $headers[$alias] = true;
+                }
+            }
+            if (count($rows) > 5000) throw new InvalidArgumentException('Limite de 5.000 leads por planilha.');
+        }
+    }
+    if (!$rows) throw new InvalidArgumentException('As abas publicadas ainda não possuem leads.');
+    return array('headers' => array_keys($headers), 'rows' => array_values($rows), 'duplicates' => $duplicates);
+}
+
+function load_published_workbook($url) {
+    $source = published_workbook_url($url);
+    $html = http_request_body(explode('?', $source)[0] . 'html', 'GET', array(), null, true, 5 * 1024 * 1024);
+    $tabs = discover_published_tabs($html, $source);
+    $totalBytes = 0;
+    foreach ($tabs as &$tab) {
+        $csv = http_request_body($tab['url'], 'GET', array(), null, true, 5 * 1024 * 1024);
+        $totalBytes += strlen($csv);
+        if ($totalBytes > 20 * 1024 * 1024) throw new InvalidArgumentException('O conjunto de abas excede 20 MB.');
+        try { $tab['parsed'] = parse_new_sheet($csv, true); }
+        catch (InvalidArgumentException $e) { throw new InvalidArgumentException('Aba “' . $tab['name'] . '”: ' . $e->getMessage()); }
+    }
+    unset($tab);
+    $parsed = merge_published_tabs($tabs);
+    $parsed['sheet_urls'] = array_column($tabs, 'url');
+    $parsed['sheet_names'] = array_column($tabs, 'name');
+    $parsed['workbook_url'] = $source;
+    return $parsed;
+}
+
+function parse_new_sheet($csv, $allowEmpty = false) {
+    if (strlen($csv) > 5 * 1024 * 1024) throw new InvalidArgumentException('A planilha excede o limite de 5 MB.');
+    $handle = open_csv_string($csv);
+    try {
+        $headers = read_csv_headers($handle);
+        if (!$headers || !in_array('Lead_ID', $headers, true)) {
+            throw new InvalidArgumentException('A primeira linha precisa conter a coluna Lead_ID. Publique a aba correta como CSV separado por vírgulas.');
+        }
+        if (count(array_unique($headers)) !== count($headers) || in_array('', $headers, true)) {
+            throw new InvalidArgumentException('As colunas precisam ter nomes preenchidos e sem repetição.');
+        }
+        $rows = array();
+        $duplicates = 0;
+        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+            if (!array_filter($row, fn($value) => trim((string)$value) !== '')) continue;
+            if (count($row) !== count($headers)) throw new InvalidArgumentException('Há uma linha com quantidade de campos diferente do cabeçalho.');
+            $data = row_to_assoc($headers, $row);
+            $id = trim($data['Lead_ID']);
+            if ($id === '') throw new InvalidArgumentException('Cada linha com dados precisa de um Lead_ID preenchido.');
+            if (isset($rows[$id])) $duplicates++;
+            $data['Lead_ID'] = $id;
+            $rows[$id] = $data;
+            if (count($rows) > 5000) throw new InvalidArgumentException('Limite de 5.000 leads por cadastro.');
+        }
+        if (!$rows && !$allowEmpty) throw new InvalidArgumentException('A planilha ainda não possui leads para importar.');
+        return array('headers' => $headers, 'rows' => array_values($rows), 'duplicates' => $duplicates);
+    } finally {
+        fclose($handle);
+    }
+}
+
+function sheet_display_config($parsed) {
+    $display = array('last_synced' => gmdate('Y-m-d\TH:i:s\Z'));
+    if (isset($parsed['workbook_url'])) {
+        $display['published_workbook_url'] = $parsed['workbook_url'];
+        $display['sheet_names'] = $parsed['sheet_names'];
+    }
+    foreach (array('Number' => 'Número', 'Padronized Number' => 'Número Padronizado', 'DateTime' => 'Data de Entrada') as $target => $field) {
+        if (!in_array($target, $parsed['headers'], true) && in_array($field, $parsed['headers'], true)) $display['field_map'][$target] = $field;
+    }
+    if (!in_array('Score AI', $parsed['headers'], true)) {
+        foreach (array('Tier', 'Score', 'New_Tier') as $field) {
+            if (in_array($field, $parsed['headers'], true)) { $display['field_map']['Score AI'] = $field; break; }
+        }
+    }
+    return $display;
+}
+
+function new_sheet_queries($key, $name, $url, $parsed) {
+    $statuses = real_estate_statuses();
+    $display = sheet_display_config($parsed);
+    return array(
+        array('query' => 'INSERT INTO pipelines (key, name, statuses, board_statuses, column_labels, sheet_urls, display) VALUES ($1,$2,$3::jsonb,$3::jsonb,$4::jsonb,$5::jsonb,$6::jsonb)',
+            'params' => array($key, $name, json_encode($statuses), json_encode(labels_from_statuses($statuses)), json_encode($parsed['sheet_urls'] ?? array($url)), json_encode($display))),
+        array('query' => "INSERT INTO leads (pipeline_key, lead_id, data, status, internal_notes) SELECT \$1, item->>'Lead_ID', item - 'Lead_ID', 'Novo', '' FROM jsonb_array_elements(\$2::jsonb) AS item",
+            'params' => array($key, json_encode($parsed['rows'], JSON_UNESCAPED_UNICODE)))
+    );
+}
+
 function neon_http($body) {
     $c = neon_http_config();
-    $ctx = stream_context_create(array('http' => array(
-        'method'        => 'POST',
-        'header'        =>
-            "Content-Type: application/json\r\n" .
-            "Neon-Connection-String: " . $c['conn_string'] . "\r\n",
-        'content'       => json_encode($body, JSON_UNESCAPED_UNICODE),
-        'timeout'       => 20,
-        'ignore_errors' => true,
-    )));
-    $raw = @file_get_contents($c['endpoint'], false, $ctx);
-    if ($raw === false) throw new Exception('Neon HTTP: sem resposta do servidor');
+    if (function_exists('curl_init')) {
+        $raw = http_request_body($c['endpoint'], 'POST', array(
+            'Content-Type: application/json',
+            'Neon-Connection-String: ' . $c['conn_string']
+        ), json_encode($body, JSON_UNESCAPED_UNICODE));
+    } else {
+        $ctx = stream_context_create(array('http' => array(
+            'method'        => 'POST',
+            'header'        =>
+                "Content-Type: application/json\r\n" .
+                "Connection: close\r\n" .
+                "Neon-Connection-String: " . $c['conn_string'] . "\r\n",
+            'content'       => json_encode($body, JSON_UNESCAPED_UNICODE),
+            'timeout'       => 20,
+            'ignore_errors' => true,
+        )));
+        $raw = @file_get_contents($c['endpoint'], false, $ctx);
+        if ($raw === false) throw new Exception('Neon HTTP: sem resposta do servidor');
+    }
     $data = json_decode($raw, true);
     if (!is_array($data)) throw new Exception('Neon HTTP: resposta inválida');
     if (isset($data['message'])) throw new Exception('Neon: ' . $data['message']);
@@ -424,6 +637,14 @@ function neon_update_lead($pipeline, $input) {
     );
 }
 
+function neon_delete_pipeline($key) {
+    if ($key === '' || $key === 'real_estate') throw new InvalidArgumentException('O pipeline CSV manual é protegido.');
+    return neon_transaction(array(
+        array('query' => 'DELETE FROM leads WHERE pipeline_key = $1', 'params' => array($key)),
+        array('query' => 'DELETE FROM pipelines WHERE key = $1', 'params' => array($key))
+    ));
+}
+
 function neon_delete_lead($pipeline, $leadId) {
     $result = neon_query(
         'DELETE FROM leads WHERE pipeline_key = $1 AND lead_id = $2',
@@ -434,15 +655,39 @@ function neon_delete_lead($pipeline, $leadId) {
     }
 }
 
-function neon_update_column_labels($pipeline, $labels) {
-    neon_query(
-        'UPDATE pipelines SET column_labels = $1::jsonb WHERE key = $2',
-        array(json_encode($labels, JSON_UNESCAPED_UNICODE), $pipeline['key'])
+function neon_update_pipeline_columns($pipeline, $statuses, $labels, $moveFrom = array(), $moveTo = null) {
+    $queries = array();
+    if (!empty($moveFrom) && $moveTo !== null) {
+        $queries[] = array(
+            'query' => 'UPDATE leads
+                           SET status = $1, updated_at = now()
+                         WHERE pipeline_key = $2
+                           AND status IN (SELECT jsonb_array_elements_text($3::jsonb))',
+            'params' => array(
+                $moveTo,
+                $pipeline['key'],
+                json_encode(array_values($moveFrom), JSON_UNESCAPED_UNICODE)
+            )
+        );
+    }
+    $queries[] = array(
+        'query' => 'UPDATE pipelines
+                      SET statuses = $1::jsonb,
+                          board_statuses = CASE WHEN board_statuses IS NULL THEN NULL ELSE $1::jsonb END,
+                          column_labels = $2::jsonb,
+                          updated_at = now()
+                    WHERE key = $3',
+        'params' => array(
+            json_encode(array_values($statuses), JSON_UNESCAPED_UNICODE),
+            json_encode($labels, JSON_UNESCAPED_UNICODE),
+            $pipeline['key']
+        )
     );
-    return $labels;
+    neon_transaction($queries);
+    return array('statuses' => array_values($statuses), 'column_labels' => $labels);
 }
 
-function neon_sync_pipeline($pipeline) {
+function neon_sync_pipeline($pipeline, $loaded = null, $returnResult = false) {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         json_response(array('success' => false, 'error' => 'Método inválido'), 405);
     }
@@ -452,32 +697,46 @@ function neon_sync_pipeline($pipeline) {
         json_response(array('success' => false, 'error' => 'Nenhuma sheet_url configurada para este pipeline'), 400);
     }
 
-    // Merge todas as abas por Lead_ID (LEFT JOIN: aba contato = base)
-    $mergedByLeadId = array();
-    foreach ($sheetUrls as $urlIndex => $url) {
-        $csv    = fetch_csv($url);
-        $handle = open_csv_string($csv);
-        $headers = read_csv_headers($handle);
-        if ($headers === false) {
+    if ($loaded === null) {
+        $workbooks = array();
+        foreach ($sheetUrls as $sheetUrl) {
+            try { $workbooks[published_workbook_url($sheetUrl)] = true; }
+            catch (InvalidArgumentException $e) { $workbooks = array(); break; }
+        }
+        if (count($workbooks) === 1) $loaded = load_published_workbook(array_key_first($workbooks));
+    }
+    if ($loaded !== null) {
+        $mergedByLeadId = array_column($loaded['rows'], null, 'Lead_ID');
+        $sheetUrls = $loaded['sheet_urls'];
+    } else {
+        // Merge todas as abas por Lead_ID (LEFT JOIN: aba contato = base)
+        $mergedByLeadId = array();
+        foreach ($sheetUrls as $urlIndex => $url) {
+            $csv    = fetch_csv($url);
+            $handle = open_csv_string($csv);
+            $headers = read_csv_headers($handle);
+            if ($headers === false) {
+                fclose($handle);
+                json_response(array('success' => false, 'error' => 'CSV da aba ' . ($urlIndex + 1) . ' vazio ou sem headers'), 400);
+            }
+
+            while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+                if (count($row) === 1 && trim($row[0]) === '') continue;
+
+                $csvRow = row_to_assoc($headers, $row);
+                $leadId = isset($csvRow['Lead_ID']) ? trim((string)$csvRow['Lead_ID']) : '';
+                if ($leadId === '') continue;
+
+                if (!isset($mergedByLeadId[$leadId])) {
+                    $mergedByLeadId[$leadId] = array('Lead_ID' => $leadId);
+                }
+                foreach ($csvRow as $k => $v) {
+                    if ($k !== 'Lead_ID') $mergedByLeadId[$leadId][$k] = $v;
+                }
+            }
             fclose($handle);
-            json_response(array('success' => false, 'error' => 'CSV da aba ' . ($urlIndex + 1) . ' vazio ou sem headers'), 400);
         }
 
-        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
-            if (count($row) === 1 && trim($row[0]) === '') continue;
-
-            $csvRow = row_to_assoc($headers, $row);
-            $leadId = isset($csvRow['Lead_ID']) ? trim((string)$csvRow['Lead_ID']) : '';
-            if ($leadId === '') continue;
-
-            if (!isset($mergedByLeadId[$leadId])) {
-                $mergedByLeadId[$leadId] = array('Lead_ID' => $leadId);
-            }
-            foreach ($csvRow as $k => $v) {
-                if ($k !== 'Lead_ID') $mergedByLeadId[$leadId][$k] = $v;
-            }
-        }
-        fclose($handle);
     }
 
     $pipelineKey = $pipeline['key'];
@@ -505,16 +764,27 @@ function neon_sync_pipeline($pipeline) {
         if (isset($existingIds[$leadId])) { $updated++; } else { $new++; }
     }
 
-    if (!empty($queries)) {
-        neon_transaction($queries);
+    $display = $pipeline['display'] ?? array();
+    if ($loaded !== null) {
+        $detected = sheet_display_config($loaded);
+        $detected['field_map'] = array_replace($detected['field_map'] ?? array(), $display['field_map'] ?? array());
+        $display = array_replace($display, $detected);
     }
+    $display['last_synced'] = gmdate('Y-m-d\\TH:i:s\\Z');
+    $queries[] = array(
+        'query' => 'UPDATE pipelines SET display = COALESCE(display, \'{}\'::jsonb) || $2::jsonb, sheet_urls = $3::jsonb, updated_at = now() WHERE key = $1',
+        'params' => array($pipelineKey, json_encode($display, JSON_UNESCAPED_UNICODE), json_encode($sheetUrls))
+    );
+    neon_transaction($queries);
 
     $leads        = neon_read_leads($pipeline);
     $columnLabels = !empty($pipeline['column_labels'])
         ? $pipeline['column_labels']
         : labels_from_statuses($pipeline['statuses']);
 
-    json_response(array(
+    $payload = array(
+        'display' => $display,
+        'sheet_count' => count($sheetUrls),
         'success'      => true,
         'imported'     => $imported,
         'updated'      => $updated,
@@ -525,19 +795,17 @@ function neon_sync_pipeline($pipeline) {
         'last_updated' => gmdate('Y-m-d\TH:i:s\Z'),
         'last_synced'  => gmdate('Y-m-d\TH:i:s\Z'),
         'statuses'     => $pipeline['statuses'],
-    ));
+    );
+    if ($returnResult) return $payload;
+    json_response($payload);
 }
 
 // ── resolução de pipeline ─────────────────────────────────────────────────────
 
 function all_pipeline_configs() {
     $configs = array('real_estate' => file_pipeline_config());
-    try {
-        foreach (neon_list_pipelines() as $key => $config) {
-            $configs[$key] = $config;
-        }
-    } catch (Throwable $e) {
-        // Neon indisponível: retorna só real_estate sem quebrar
+    foreach (neon_list_pipelines() as $key => $config) {
+        $configs[$key] = $config;
     }
     return $configs;
 }
@@ -622,6 +890,7 @@ try {
     }
 
     if ($action === 'logout') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success' => false, 'error' => 'Método inválido'), 405);
         $token = isset($_COOKIE[SESSION_COOKIE]) ? $_COOKIE[SESSION_COOKIE] : '';
         if ($token !== '') neon_query('DELETE FROM sessions WHERE token = $1', array($token));
         setcookie(SESSION_COOKIE, '', array('expires'=>time()-3600,'path'=>'/','secure'=>true,'httponly'=>true,'samesite'=>'Lax'));
@@ -629,6 +898,52 @@ try {
     }
 
     require_auth();   // daqui pra baixo, tudo exige sessão válida
+
+    if ($action === 'delete_pipeline') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success' => false, 'error' => 'Método inválido'), 405);
+        if ((auth_current_user()['role'] ?? '') !== 'admin') json_response(array('success' => false, 'error' => 'Apenas administradores podem excluir pipelines.'), 403);
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input) || !is_string($input['pipeline'] ?? null) || ($input['confirmed'] ?? false) !== true) {
+            json_response(array('success' => false, 'error' => 'Confirme a exclusão do pipeline.'), 400);
+        }
+        $key = trim($input['pipeline']);
+        if ($key === '' || $key === 'real_estate') json_response(array('success' => false, 'error' => 'A opção CSV manual não pode ser excluída.'), 400);
+        if (!neon_get_pipeline($key)) json_response(array('success' => false, 'error' => 'Pipeline não encontrado. Atualize a página.'), 404);
+        neon_delete_pipeline($key);
+        json_response(array('success' => true, 'pipeline' => $key));
+    }
+
+    if ($action === 'create_sheet_pipeline') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success' => false, 'error' => 'Método inválido'), 405);
+        if ((auth_current_user()['role'] ?? '') !== 'admin') json_response(array('success' => false, 'error' => 'Apenas administradores podem cadastrar planilhas.'), 403);
+        try {
+            $input = json_decode(file_get_contents('php://input'), true);
+            if (!is_array($input) || !is_string($input['name'] ?? null) || !is_string($input['url'] ?? null)) {
+                throw new InvalidArgumentException('Informe o nome e o link publicado da planilha.');
+            }
+            $name = trim($input['name']);
+            if (!preg_match('/^.{1,120}$/us', $name)) throw new InvalidArgumentException('Informe um nome entre 1 e 120 caracteres.');
+            $url = published_workbook_url($input['url']);
+            $key = 'sheet_' . substr(hash('sha256', $url), 0, 24);
+            foreach (neon_list_pipelines() as $existing) {
+                foreach ($existing['sheet_urls'] as $existingUrl) {
+                    try { $same = published_workbook_url($existingUrl) === $url; }
+                    catch (InvalidArgumentException $e) { $same = false; }
+                    if ($same) {
+                        $loaded = load_published_workbook($url);
+                        $result = neon_sync_pipeline($existing, $loaded, true);
+                        json_response(array('success' => true, 'pipeline' => $existing['key'], 'existing' => true, 'sheet_count' => $result['sheet_count'], 'imported' => $result['imported']));
+                    }
+                }
+            }
+            if (!function_exists('curl_init')) throw new Exception('A extensão cURL precisa estar habilitada para cadastrar planilhas.');
+            $parsed = load_published_workbook($url);
+            neon_transaction(new_sheet_queries($key, $name, $url, $parsed));
+            json_response(array('success' => true, 'pipeline' => $key, 'imported' => count($parsed['rows']), 'duplicates' => $parsed['duplicates'], 'sheet_count' => count($parsed['sheet_urls']), 'existing' => false));
+        } catch (InvalidArgumentException $e) {
+            json_response(array('success' => false, 'error' => $e->getMessage()), 400);
+        }
+    }
 
     // action=pipelines não precisa de pipeline específico
     if ($action === 'pipelines') {
@@ -665,8 +980,9 @@ try {
                 'pipeline'      => $pipeline['key'],
                 'leads'         => $leads,
                 'column_labels' => $columnLabels,
+                'display'       => $pipeline['display'],
                 'last_updated'  => '',
-                'last_synced'   => '',
+                'last_synced'   => $pipeline['display']['last_synced'] ?? '',
                 'statuses'      => $pipeline['statuses'],
                 'supports_import'=> false,
                 'supports_sync'  => $pipeline['supports_sync'],
@@ -682,7 +998,7 @@ try {
             'column_labels'  => $data['column_labels'],
             'last_updated'   => $data['last_updated'],
             'last_synced'    => $data['last_synced'],
-            'statuses'       => $pipeline['statuses'],
+            'statuses'       => $data['statuses'],
             'supports_import'=> $pipeline['supports_import'],
             'supports_sync'  => $pipeline['supports_sync'],
             'supports_delete'=> $pipeline['supports_delete'],
@@ -699,12 +1015,71 @@ try {
             json_response(array('success' => false, 'error' => 'column_labels obrigatório'), 400);
         }
 
-        $labels = labels_from_statuses($pipeline['statuses']);
+        $fileData = null;
+        $existingStatuses = $pipeline['statuses'];
         if ($pipeline['driver'] === 'file') {
-            $labels = $pipeline['column_labels'];
+            $fileData = read_data($pipeline);
+            $existingStatuses = $fileData['statuses'];
         }
 
-        foreach ($pipeline['statuses'] as $status) {
+        $requestedStatuses = isset($input['statuses']) && is_array($input['statuses'])
+            ? $input['statuses']
+            : $existingStatuses;
+        $statuses = array();
+        $normalizedStatuses = array();
+        foreach ($requestedStatuses as $requestedStatus) {
+            $status = trim((string)$requestedStatus);
+            $normalized = function_exists('mb_strtolower') ? mb_strtolower($status, 'UTF-8') : strtolower($status);
+            if ($status === '' || strlen($status) > 80 || isset($normalizedStatuses[$normalized])) continue;
+            $normalizedStatuses[$normalized] = true;
+            $statuses[] = $status;
+        }
+        if (empty($statuses)) {
+            json_response(array('success' => false, 'error' => 'Ao menos um status válido é obrigatório'), 400);
+        }
+        if (count($statuses) > 50) {
+            json_response(array('success' => false, 'error' => 'Limite de 50 colunas excedido'), 400);
+        }
+
+        $removedStatuses = array_values(array_diff($existingStatuses, $statuses));
+        $moveRemovedLeadsTo = isset($input['move_removed_leads_to'])
+            ? trim((string)$input['move_removed_leads_to'])
+            : '';
+        if ($moveRemovedLeadsTo !== '' && !in_array($moveRemovedLeadsTo, $statuses, true)) {
+            json_response(array('success' => false, 'error' => 'A coluna de chegada precisa continuar no quadro'), 400);
+        }
+        if (!empty($removedStatuses)) {
+            $statusesInUse = array();
+            if ($pipeline['driver'] === 'neon') {
+                $inUseResult = neon_query(
+                    'SELECT status, count(*)::int AS lead_count
+                       FROM leads
+                      WHERE pipeline_key = $1
+                        AND status IN (SELECT jsonb_array_elements_text($2::jsonb))
+                      GROUP BY status',
+                    array($pipeline['key'], json_encode($removedStatuses, JSON_UNESCAPED_UNICODE))
+                );
+                foreach ($inUseResult['rows'] as $row) {
+                    $statusesInUse[] = $row['status'];
+                }
+            } else {
+                foreach ($fileData['leads'] as $lead) {
+                    $leadStatus = isset($lead['Status']) && $lead['Status'] !== '' ? $lead['Status'] : 'Novo';
+                    if (in_array($leadStatus, $removedStatuses, true) && !in_array($leadStatus, $statusesInUse, true)) {
+                        $statusesInUse[] = $leadStatus;
+                    }
+                }
+            }
+            if (!empty($statusesInUse) && $moveRemovedLeadsTo === '') {
+                json_response(array(
+                    'success' => false,
+                    'error' => 'Mova os leads antes de remover: ' . implode(', ', $statusesInUse)
+                ), 409);
+            }
+        }
+
+        $labels = labels_from_statuses($statuses);
+        foreach ($statuses as $status) {
             if (isset($input['column_labels'][$status])) {
                 $label = trim((string)$input['column_labels'][$status]);
                 $labels[$status] = $label !== '' ? $label : $status;
@@ -712,14 +1087,34 @@ try {
         }
 
         if ($pipeline['driver'] === 'neon') {
-            $labels = neon_update_column_labels($pipeline, $labels);
+            $saved = neon_update_pipeline_columns(
+                $pipeline,
+                $statuses,
+                $labels,
+                $moveRemovedLeadsTo !== '' ? $removedStatuses : array(),
+                $moveRemovedLeadsTo !== '' ? $moveRemovedLeadsTo : null
+            );
         } else {
-            $data = read_data($pipeline);
-            $data['column_labels'] = $labels;
-            write_data($pipeline, $data);
+            if ($moveRemovedLeadsTo !== '' && !empty($removedStatuses)) {
+                foreach ($fileData['leads'] as &$lead) {
+                    $leadStatus = isset($lead['Status']) && $lead['Status'] !== '' ? $lead['Status'] : 'Novo';
+                    if (in_array($leadStatus, $removedStatuses, true)) {
+                        $lead['Status'] = $moveRemovedLeadsTo;
+                    }
+                }
+                unset($lead);
+            }
+            $fileData['statuses'] = $statuses;
+            $fileData['column_labels'] = $labels;
+            write_data($pipeline, $fileData);
+            $saved = array('statuses' => $statuses, 'column_labels' => $labels);
         }
 
-        json_response(array('success' => true, 'column_labels' => $labels));
+        json_response(array(
+            'success' => true,
+            'statuses' => $saved['statuses'],
+            'column_labels' => $saved['column_labels']
+        ));
     }
 
     if ($action === 'update_lead') {
