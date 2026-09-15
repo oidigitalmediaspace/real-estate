@@ -127,6 +127,19 @@
     const PAGE_SIZE = 15;
     const app = document.getElementById('app');
 
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !isProcessing()) {
+        const modalRoot = document.getElementById('modal-root');
+        const importRoot = document.getElementById('import-root');
+        if (modalRoot && modalRoot.innerHTML.trim() !== '') {
+          modalRoot.innerHTML = '';
+          selectedLeadId = null;
+        } else if (importRoot && importRoot.innerHTML.trim() !== '') {
+          importRoot.innerHTML = '';
+        }
+      }
+    });
+
     let currentPipeline = 'real_estate';
     let leads = [];
     let filters = { search: '', tier: 'All', approach: 'All', sort: 'tier_desc' };
@@ -501,6 +514,7 @@
       const config = pipelineConfig();
       return `
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button id="add-lead-btn" type="button" class="rounded-xl bg-[#E8205E] px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-500/35">Adicionar lead</button>
           ${config.supportsImport ? '<button id="open-import" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-zinc-100 transition hover:border-orange-400/45 hover:bg-orange-400/10">Importar CSV</button>' : ''}
           <div class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-zinc-400">Leads visíveis <span class="ml-2 font-extrabold text-zinc-50">${visibleCount}</span></div>
         </div>
@@ -887,8 +901,9 @@
               <div class="mb-7">
                 <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-rose-300/90">Real Estate CRM</p>
                 <h2 class="text-2xl font-semibold tracking-tight text-zinc-50">Nenhum lead importado ainda</h2>
-                <p class="mt-2 text-sm leading-6 text-zinc-400">Importe o CSV para montar o board de leads e iniciar a triagem.</p>
+                <p class="mt-2 text-sm leading-6 text-zinc-400">Importe o CSV ou adicione um lead manualmente para montar o board de leads e iniciar a triagem.</p>
               </div>
+              <button id="empty-add-lead-btn" type="button" class="w-full mb-4 rounded-xl border border-rose-500/30 bg-rose-500/15 px-4 py-2.5 text-sm font-bold text-rose-100 transition hover:bg-rose-500/25">Adicionar lead manualmente</button>
               <form id="import-form" class="space-y-5">
                 <input id="csv-file" name="csv" type="file" accept=".csv,text/csv" class="block w-full rounded-xl field-dark px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-zinc-950">
                 <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Importar CSV</button>
@@ -905,6 +920,8 @@
       bindPipelineTabs();
       bindImportForm(document.getElementById('import-form'), document.getElementById('import-message'));
       bindSheetRegistration();
+      const emptyBtn = document.getElementById('empty-add-lead-btn');
+      if (emptyBtn) emptyBtn.addEventListener('click', renderAddLeadModal);
     }
 
     function renderCRM(options = {}) {
@@ -939,6 +956,9 @@
 
       bindPipelineTabs();
       bindFilters();
+
+      const addLeadBtn = document.getElementById('add-lead-btn');
+      if (addLeadBtn) addLeadBtn.addEventListener('click', renderAddLeadModal);
 
       const importButton = document.getElementById('open-import');
       if (importButton) importButton.addEventListener('click', renderImportModal);
@@ -1907,6 +1927,148 @@
       bindSheetRegistration();
     }
 
+    function renderAddLeadModal() {
+      const root = document.getElementById('modal-root');
+      const config = pipelineConfig();
+      root.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/72 p-4 backdrop-blur-md">
+          <section class="soft-panel max-h-[90vh] overflow-y-auto w-full max-w-lg rounded-2xl p-6 shadow-[0_30px_100px_rgba(0,0,0,.55),0_0_50px_rgba(232,32,94,.08)]">
+            <div class="mb-5 flex items-center justify-between">
+              <div>
+                <h2 class="text-lg font-semibold text-zinc-50">Adicionar Lead</h2>
+                <p class="text-xs text-zinc-400 mt-0.5">Pipeline: ${escapeHtml(config.title)}</p>
+              </div>
+              <button id="close-add-lead-modal" type="button" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.08]">Fechar</button>
+            </div>
+            <form id="add-lead-form" class="space-y-4">
+              <label class="block text-sm text-zinc-300">
+                <span class="flex items-center justify-between">
+                  <span>Nome</span>
+                  <span class="text-xs font-medium text-rose-400">Obrigatório</span>
+                </span>
+                <input id="add-lead-name" name="name" required maxlength="200" placeholder="Nome completo do lead" class="field-dark mt-1.5 w-full rounded-xl px-3.5 py-2.5 text-sm">
+              </label>
+              <label class="block text-sm text-zinc-300">
+                <span>Número</span>
+                <input id="add-lead-phone" name="phone" maxlength="50" placeholder="Telefone ou WhatsApp" class="field-dark mt-1.5 w-full rounded-xl px-3.5 py-2.5 text-sm">
+              </label>
+              <label class="block text-sm text-zinc-300">
+                <span>Email</span>
+                <input id="add-lead-email" name="email" type="email" maxlength="150" placeholder="exemplo@dominio.com" class="field-dark mt-1.5 w-full rounded-xl px-3.5 py-2.5 text-sm">
+              </label>
+              <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Salvar lead</button>
+            </form>
+            <p id="add-lead-message" role="status" class="mt-3 text-sm text-rose-300"></p>
+          </section>
+        </div>
+      `;
+      document.getElementById('close-add-lead-modal').addEventListener('click', () => root.innerHTML = '');
+      bindAddLeadForm();
+    }
+
+    function bindAddLeadForm() {
+      const form = document.getElementById('add-lead-form');
+      if (!form) return;
+      const message = document.getElementById('add-lead-message');
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (isProcessing()) return;
+
+        const nameInput = document.getElementById('add-lead-name');
+        const phoneInput = document.getElementById('add-lead-phone');
+        const emailInput = document.getElementById('add-lead-email');
+
+        const nameVal = nameInput ? nameInput.value.trim() : '';
+        const phoneVal = phoneInput ? phoneInput.value.trim() : '';
+        const emailVal = emailInput ? emailInput.value.trim() : '';
+
+        if (!nameVal) {
+          if (message) message.textContent = 'Nome é obrigatório.';
+          return;
+        }
+
+        const config = pipelineConfig();
+        const payload = {};
+        
+        const now = new Date();
+        const brtString = new Intl.DateTimeFormat('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        }).format(now).replace(',', '');
+
+        if (config.driver === 'file') {
+          payload.Name = nameVal;
+          payload.DateTime = brtString;
+          if (phoneVal) payload.Phone = phoneVal;
+          if (emailVal) payload.Email = emailVal;
+        } else {
+          const fieldMap = (config.display || {}).field_map || {};
+          let nameKey = fieldMap['Nome'] || fieldMap['Name'];
+          if (!nameKey) {
+            const sample = leads.find(l => l.Nome !== undefined || l.Name !== undefined);
+            nameKey = (sample && sample.Nome !== undefined) ? 'Nome' : 'Name';
+          }
+          let phoneKey = fieldMap['Padronized Number'] || fieldMap['Number'] || fieldMap['Phone'] || fieldMap['Número'];
+          if (!phoneKey) {
+            const sample = leads.find(l => l['Padronized Number'] !== undefined || l.Number !== undefined || l.Phone !== undefined || l['Número'] !== undefined);
+            if (sample) {
+              if (sample['Padronized Number'] !== undefined) phoneKey = 'Padronized Number';
+              else if (sample.Number !== undefined) phoneKey = 'Number';
+              else if (sample['Número'] !== undefined) phoneKey = 'Número';
+              else phoneKey = 'Phone';
+            } else {
+              phoneKey = 'Number';
+            }
+          }
+          let emailKey = fieldMap['Email'] || 'Email';
+
+          let dateKey = fieldMap['DateTime'] || fieldMap['Carimbo de data/hora'] || fieldMap['Data de Entrada'] || fieldMap['Data'] || fieldMap['Data de Criação'] || fieldMap['Timestamp'];
+          if (!dateKey) {
+            const sample = leads.find(l => l.DateTime !== undefined || l['Carimbo de data/hora'] !== undefined || l['Data'] !== undefined || l['Timestamp'] !== undefined || l['Data de Entrada'] !== undefined);
+            if (sample) {
+              if (sample.DateTime !== undefined) dateKey = 'DateTime';
+              else if (sample['Carimbo de data/hora'] !== undefined) dateKey = 'Carimbo de data/hora';
+              else if (sample['Data de Entrada'] !== undefined) dateKey = 'Data de Entrada';
+              else if (sample['Data'] !== undefined) dateKey = 'Data';
+              else if (sample['Timestamp'] !== undefined) dateKey = 'Timestamp';
+              else dateKey = 'DateTime';
+            } else {
+              dateKey = 'DateTime';
+            }
+          }
+
+          payload[nameKey] = nameVal;
+          payload[dateKey] = brtString;
+          if (phoneVal) payload[phoneKey] = phoneVal;
+          if (emailVal) payload[emailKey] = emailVal;
+        }
+
+        return withProcessing('Criando novo lead...', async () => {
+          if (message) message.textContent = '';
+          try {
+            const response = await apiFetch(apiEndpoint('add_lead'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!data.success || !data.lead) {
+              throw new Error(data.error || 'Erro ao criar o lead');
+            }
+
+            const root = document.getElementById('modal-root');
+            if (root) root.innerHTML = '';
+
+            leads.unshift(data.lead);
+            renderCurrentView();
+          } catch (error) {
+            if (message) message.textContent = error.message || 'Erro ao criar o lead';
+          }
+        });
+      });
+    }
+
     function renderSheetModal() {
       const root = document.getElementById('modal-root');
       root.innerHTML = `
@@ -1939,7 +2101,7 @@
           <p class="text-xs leading-5 text-zinc-400">Em “Publicar na Web”, publique o documento inteiro. Todas as abas publicadas serão buscadas e unidas por Lead_ID. Cada aba precisa ter essa coluna. Abas novas são descobertas ao sincronizar. Limites: 20 abas, 5.000 leads, 5 MB por aba e 20 MB no total. Abas não publicadas não ficam acessíveis pelo link.</p>
           <button type="submit" class="w-full rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Adicionar e importar planilha</button>
         </form>
-        <p id="sheet-registration-message" role="status" class="mt-3 text-sm text-orange-200"></p>
+        <div id="sheet-registration-message" role="status" class="mt-4 hidden rounded-xl bg-rose-500/10 border border-rose-500/20 p-4 text-sm font-semibold text-rose-300"></div>
       </section>`;
     }
 
@@ -1950,9 +2112,15 @@
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         if (isProcessing()) return;
+        message.classList.add('hidden');
+        message.textContent = '';
         const name = form.elements.namedItem('name').value.trim();
         const url = form.elements.namedItem('url').value.trim();
-        if (!name || !url) { message.textContent = 'Informe o nome e o link publicado.'; return; }
+        if (!name || !url) { 
+          message.textContent = 'Informe o nome e o link publicado.'; 
+          message.classList.remove('hidden');
+          return; 
+        }
         let registered = false;
         await withProcessing('Buscando todas as abas publicadas e reunindo os dados dos leads. Aguarde...', async () => {
           try {
@@ -1973,6 +2141,7 @@
             await loadLeads({ withinOperation: true });
           } catch (error) {
             message.textContent = (registered ? 'A planilha foi cadastrada, mas houve uma falha ao abrir o quadro. Tente novamente com o mesmo link. ' : '') + error.message;
+            message.classList.remove('hidden');
           }
         });
       });

@@ -252,7 +252,7 @@ function import_real_estate($pipeline) {
     }
 
     $expectedFields = array(
-        'Lead_ID', 'Name', 'Type', 'Phone', 'Email', 'Website', 'Instagram', 'Linkedin',
+        'Lead_ID', 'DateTime', 'Data', 'Data de Entrada', 'Carimbo de data/hora', 'Name', 'Type', 'Phone', 'Email', 'Website', 'Instagram', 'Linkedin',
         'Observação', 'Score_Fase1', 'Tier_Fase1', 'Recommended_Angle', 'IG_Followers',
         'IG_PostCount', 'IG_Posts_30d', 'IG_Last_Post_Days', 'IG_Activity', 'LI_Followers',
         'LI_Connections', 'LI_Headline', 'LI_Company', 'Website_Active', 'Website_Summary',
@@ -800,6 +800,138 @@ function neon_sync_pipeline($pipeline, $loaded = null, $returnResult = false) {
     json_response($payload);
 }
 
+function generate_uuid_v4() {
+    $data = random_bytes(16);
+    $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+    $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+}
+
+function generate_manual_lead_id() {
+    return 'manual-' . generate_uuid_v4();
+}
+
+function file_add_lead($pipeline, $input, $idGenerator = 'generate_manual_lead_id') {
+    $name = trim((string)($input['Name'] ?? $input['Nome'] ?? ''));
+    if ($name === '') {
+        json_response(array('success' => false, 'error' => 'Nome é obrigatório'), 400);
+    }
+
+    $data = read_data($pipeline);
+    $existingMap = get_existing_map($data['leads']);
+
+    $leadId = null;
+    for ($attempt = 0; $attempt < 5; $attempt++) {
+        $candidate = call_user_func($idGenerator);
+        if (!isset($existingMap[$candidate])) {
+            $leadId = $candidate;
+            break;
+        }
+    }
+
+    if ($leadId === null) {
+        json_response(array('success' => false, 'error' => 'Não foi possível gerar um Lead_ID único após 5 tentativas'), 500);
+    }
+
+    $expectedFields = array(
+        'Lead_ID', 'DateTime', 'Data', 'Data de Entrada', 'Carimbo de data/hora', 'Name', 'Type', 'Phone', 'Email', 'Website', 'Instagram', 'Linkedin',
+        'Observação', 'Score_Fase1', 'Tier_Fase1', 'Recommended_Angle', 'IG_Followers',
+        'IG_PostCount', 'IG_Posts_30d', 'IG_Last_Post_Days', 'IG_Activity', 'LI_Followers',
+        'LI_Connections', 'LI_Headline', 'LI_Company', 'Website_Active', 'Website_Summary',
+        'Gender', 'Brand_Score', 'Approach_Type', 'New_Tier', 'Website_Match',
+        'Short_Note', 'First_Message'
+    );
+
+    $newLead = array();
+    foreach ($expectedFields as $field) {
+        $newLead[$field] = '';
+    }
+
+    foreach ($expectedFields as $field) {
+        if (array_key_exists($field, $input)) {
+            $newLead[$field] = (string)$input[$field];
+        }
+    }
+
+    $newLead['Lead_ID'] = $leadId;
+    $newLead['Name'] = $name;
+
+    if (isset($input['Phone'])) {
+        $newLead['Phone'] = (string)$input['Phone'];
+    } elseif (isset($input['Numero'])) {
+        $newLead['Phone'] = (string)$input['Numero'];
+    } elseif (isset($input['Number'])) {
+        $newLead['Phone'] = (string)$input['Number'];
+    } elseif (isset($input['Telefone'])) {
+        $newLead['Phone'] = (string)$input['Telefone'];
+    }
+
+    if (isset($input['Email'])) {
+        $newLead['Email'] = (string)$input['Email'];
+    }
+
+    $newLead['Status'] = 'Novo';
+    $newLead['Internal_Notes'] = '';
+
+    $data['leads'][] = $newLead;
+    write_data($pipeline, $data);
+
+    return $newLead;
+}
+
+function neon_add_lead($pipeline, $input, $idGenerator = 'generate_manual_lead_id') {
+    $name = trim((string)($input['Name'] ?? $input['Nome'] ?? ''));
+    if ($name === '') {
+        json_response(array('success' => false, 'error' => 'Nome é obrigatório'), 400);
+    }
+
+    $leadData = $input;
+    unset($leadData['Lead_ID'], $leadData['Status'], $leadData['Internal_Notes']);
+
+    if (!isset($leadData['Nome']) && !isset($leadData['Name'])) {
+        $leadData['Nome'] = $name;
+    }
+
+    $pipelineKey = $pipeline['key'];
+    $leadId = null;
+
+    for ($attempt = 0; $attempt < 5; $attempt++) {
+        $candidate = call_user_func($idGenerator);
+
+        $check = neon_query(
+            'SELECT 1 FROM leads WHERE pipeline_key = $1 AND lead_id = $2',
+            array($pipelineKey, $candidate)
+        );
+
+        if (empty($check['rows'])) {
+            $insert = neon_query(
+                'INSERT INTO leads (pipeline_key, lead_id, data, status, internal_notes)
+                 VALUES ($1, $2, $3::jsonb, \'Novo\', \'\')
+                 ON CONFLICT (pipeline_key, lead_id) DO NOTHING',
+                array($pipelineKey, $candidate, json_encode($leadData, JSON_UNESCAPED_UNICODE))
+            );
+
+            if (!isset($insert['rowCount']) || (int)$insert['rowCount'] > 0) {
+                $leadId = $candidate;
+                break;
+            }
+        }
+    }
+
+    if ($leadId === null) {
+        json_response(array('success' => false, 'error' => 'Não foi possível gerar um Lead_ID único após 5 tentativas'), 500);
+    }
+
+    $row = array(
+        'lead_id'        => $leadId,
+        'data'           => $leadData,
+        'status'         => 'Novo',
+        'internal_notes' => ''
+    );
+
+    return neon_flatten_lead($row);
+}
+
 // ── resolução de pipeline ─────────────────────────────────────────────────────
 
 function all_pipeline_configs() {
@@ -1115,6 +1247,25 @@ try {
             'statuses' => $saved['statuses'],
             'column_labels' => $saved['column_labels']
         ));
+    }
+
+    if ($action === 'add_lead') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            json_response(array('success' => false, 'error' => 'Método inválido'), 405);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input)) {
+            json_response(array('success' => false, 'error' => 'Payload JSON inválido'), 400);
+        }
+
+        if ($pipeline['driver'] === 'neon') {
+            $createdLead = neon_add_lead($pipeline, $input);
+            json_response(array('success' => true, 'lead' => $createdLead));
+        }
+
+        $createdLead = file_add_lead($pipeline, $input);
+        json_response(array('success' => true, 'lead' => $createdLead));
     }
 
     if ($action === 'update_lead') {

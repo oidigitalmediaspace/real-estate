@@ -267,6 +267,96 @@ module.exports = (async () => {
     assert.equal(f.context.safeWebUrl('https://example.com/path?q=1'), 'https://example.com/path?q=1');
     assert.match(f.context.linkLine('Website', 'https://example.com/'), /rel="noopener noreferrer"/);
   });
+
+  await test('add_lead rejeita envio com Nome vazio na UI', async () => {
+    const f = fixture();
+    f.context.renderAddLeadModal();
+    const form = f.document.getElementById('add-lead-form');
+    f.document.getElementById('add-lead-name').value = '  ';
+    let fetchCalled = false;
+    f.context.fetch = async () => { fetchCalled = true; return {}; };
+    await form.submit({ preventDefault() {} });
+    assert.equal(fetchCalled, false);
+    assert.match(f.document.getElementById('add-lead-message').textContent, /obrigatório/i);
+    assert.equal(f.evaluate('isProcessing()'), false);
+  });
+
+  await test('add_lead no frontend exibe loader e atualiza dados em sucesso (driver file e neon)', async () => {
+    const f = fixture();
+    let lockStateDuringRequest;
+    
+    // Test 1: File driver (real_estate)
+    f.evaluate(`currentPipeline = 'real_estate'`);
+    f.context.renderAddLeadModal();
+    f.document.getElementById('add-lead-name').value = 'Novo Contato File';
+    f.document.getElementById('add-lead-phone').value = '11999998888';
+    
+    f.context.fetch = async (url, opts) => {
+      lockStateDuringRequest = f.evaluate('isProcessing()');
+      const payload = JSON.parse(opts.body);
+      assert.equal(payload.Name, 'Novo Contato File');
+      assert.equal(payload.Phone, '11999998888');
+      return response({ success: true, lead: { Lead_ID: 'manual-file-123', Name: 'Novo Contato File', Phone: '11999998888', Status: 'Novo' } });
+    };
+    
+    await f.document.getElementById('add-lead-form').submit({ preventDefault() {} });
+    assert.equal(lockStateDuringRequest, true);
+    assert.equal(f.evaluate('isProcessing()'), false);
+    assert.equal(f.evaluate('leads[0].Lead_ID'), 'manual-file-123');
+    assert.equal(f.document.getElementById('modal-root').innerHTML, '');
+    
+    // Test 2: Neon driver
+    f.evaluate(`PIPELINES.sheet_pipe = { key:'sheet_pipe', driver:'neon', display: { field_map: { 'Nome': 'Nome da pessoa' } } }; currentPipeline = 'sheet_pipe';`);
+    f.context.renderAddLeadModal();
+    f.document.getElementById('add-lead-name').value = 'Contato Neon';
+    
+    f.context.fetch = async (url, opts) => {
+      lockStateDuringRequest = f.evaluate('isProcessing()');
+      const payload = JSON.parse(opts.body);
+      assert.equal(payload['Nome da pessoa'], 'Contato Neon');
+      return response({ success: true, lead: { Lead_ID: 'manual-neon-123', 'Nome da pessoa': 'Contato Neon', Status: 'Novo' } });
+    };
+    
+    await f.document.getElementById('add-lead-form').submit({ preventDefault() {} });
+    assert.equal(lockStateDuringRequest, true);
+    assert.equal(f.evaluate('leads[0].Lead_ID'), 'manual-neon-123');
+  });
+
+  await test('backend file_add_lead cria corretamente e mock de retry de colisão de UUID funciona', async () => {
+    const cp = require('node:child_process');
+    const phpCode = `
+      $source = file_get_contents(__DIR__ . '/api.php');
+      $end = strpos($source, '// ── roteamento');
+      eval(substr($source, 5, $end - 5));
+      
+      $pipeline = file_pipeline_config();
+      $pipeline['file'] = __DIR__ . '/test_backend_add_lead.json';
+      file_put_contents($pipeline['file'], json_encode(['leads' => [['Lead_ID' => 'manual-colide']]]));
+      
+      $attemptCount = 0;
+      function mock_generator() {
+          global $attemptCount;
+          $attemptCount++;
+          if ($attemptCount === 1) return 'manual-colide';
+          if ($attemptCount === 2) return 'manual-colide';
+          return 'manual-sucesso';
+      }
+      
+      $input = ['Name' => 'Contato Retry', 'Email' => 'retry@test'];
+      $created = file_add_lead($pipeline, $input, 'mock_generator');
+      
+      $data = json_decode(file_get_contents($pipeline['file']), true);
+      unlink($pipeline['file']);
+      
+      if ($attemptCount !== 3) exit("Erro: attemptCount foi $attemptCount (esperado 3)");
+      if ($created['Lead_ID'] !== 'manual-sucesso') exit("Erro: Lead_ID incorreto");
+      if (count($data['leads']) !== 2) exit("Erro: o lead nao foi gravado");
+      echo "OK";
+    `;
+    const res = cp.execFileSync('php', ['-r', phpCode]).toString().trim();
+    assert.equal(res, 'OK');
+  });
+
   return { passed, externalRequests: 0 };
 })();
 
