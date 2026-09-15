@@ -169,6 +169,7 @@
     let processingTimer = null;
     let processingOverflow = '';
     let sessionExpired = false;
+    let currentUserRole = null;
 
     const escapeHtml = (value) => String(value || '')
       .replaceAll('&', '&amp;')
@@ -459,18 +460,20 @@
                   </span>
                   ${active ? '<span class="h-2 w-2 shrink-0 rounded-full bg-[#E8205E] shadow-[0_0_12px_rgba(232,32,94,.75)]"></span>' : ''}
                 </button>
-                ${pipeline.driver === 'neon' && pipeline.key !== 'real_estate' ? `<button type="button" data-delete-pipeline="${escapeHtml(pipeline.key)}" title="Excluir pipeline" aria-label="Excluir pipeline ${escapeHtml(pipeline.title)}" class="shrink-0 rounded-lg p-2 text-zinc-400 transition hover:bg-rose-500/15 hover:text-rose-300">
+                ${currentUserRole === 'admin' && pipeline.driver === 'neon' && pipeline.key !== 'real_estate' ? `<button type="button" data-delete-pipeline="${escapeHtml(pipeline.key)}" title="Excluir pipeline" aria-label="Excluir pipeline ${escapeHtml(pipeline.title)}" class="shrink-0 rounded-lg p-2 text-zinc-400 transition hover:bg-rose-500/15 hover:text-rose-300">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="h-4 w-4" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>
                 </button>` : ''}
                 </div>
               `;
             }).join('')}
+            ${currentUserRole === 'admin' ? `
             <div class="mt-1 border-t border-white/[0.08] pt-1">
               <button id="add-sheet-link-btn" type="button" class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition text-rose-300 hover:bg-rose-500/15 hover:text-rose-100">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="h-4 w-4 shrink-0" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
                 <span class="text-sm font-bold">Adicionar nova planilha</span>
               </button>
             </div>
+            ` : ''}
           </div>
         </nav>
       `;
@@ -512,10 +515,12 @@
 
     function renderHeaderActions(visibleCount) {
       const config = pipelineConfig();
+      const isAdmin = currentUserRole === 'admin';
       return `
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           <button id="add-lead-btn" type="button" class="rounded-xl bg-[#E8205E] px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-500/35">Adicionar lead</button>
-          ${config.supportsImport ? '<button id="open-import" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-zinc-100 transition hover:border-orange-400/45 hover:bg-orange-400/10">Importar CSV</button>' : ''}
+          ${isAdmin && config.supportsImport ? '<button id="open-import" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-zinc-100 transition hover:border-orange-400/45 hover:bg-orange-400/10">Importar CSV</button>' : ''}
+          ${isAdmin ? '<button id="open-team" type="button" class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-zinc-100 transition hover:border-violet-400/45 hover:bg-violet-400/10"><svg class="inline-block w-4 h-4 mr-1 -mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>Equipe</button>' : ''}
           <div class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-zinc-400">Leads visíveis <span class="ml-2 font-extrabold text-zinc-50">${visibleCount}</span></div>
         </div>
       `;
@@ -896,7 +901,7 @@
       app.innerHTML = `
         <main class="app-shell min-h-screen px-4 py-5">
           <div class="mx-auto flex max-w-[1760px] flex-col gap-5">
-            ${renderHeaderShell()}
+            ${renderHeaderShell(renderHeaderActions(0))}
             <section class="soft-panel mx-auto mt-12 w-full max-w-xl rounded-2xl p-8">
               <div class="mb-7">
                 <p class="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-rose-300/90">Real Estate CRM</p>
@@ -922,6 +927,15 @@
       bindSheetRegistration();
       const emptyBtn = document.getElementById('empty-add-lead-btn');
       if (emptyBtn) emptyBtn.addEventListener('click', renderAddLeadModal);
+
+      const addLeadBtn = document.getElementById('add-lead-btn');
+      if (addLeadBtn) addLeadBtn.addEventListener('click', renderAddLeadModal);
+
+      const importButton = document.getElementById('open-import');
+      if (importButton) importButton.addEventListener('click', renderImportModal);
+
+      const teamButton = document.getElementById('open-team');
+      if (teamButton) teamButton.addEventListener('click', renderTeamModal);
     }
 
     function renderCRM(options = {}) {
@@ -962,6 +976,9 @@
 
       const importButton = document.getElementById('open-import');
       if (importButton) importButton.addEventListener('click', renderImportModal);
+
+      const teamButton = document.getElementById('open-team');
+      if (teamButton) teamButton.addEventListener('click', renderTeamModal);
 
       const syncButton = document.getElementById('sync-now');
       if (syncButton) syncButton.addEventListener('click', () => syncPipeline({ automatic: false }));
@@ -1903,6 +1920,254 @@
       message.textContent = 'Copiado.';
     }
 
+// Team Management Functions
+
+    async function fetchUsers() {
+      const res = await apiFetch(`${API_URL}?action=list_users`);
+      const data = await res.json();
+      return data.users || [];
+    }
+
+    async function fetchPipelines() {
+      const res = await apiFetch(`${API_URL}?action=pipelines`);
+      const data = await res.json();
+      return data.pipelines || [];
+    }
+
+    async function renderTeamModal() {
+      const root = document.getElementById('modal-root');
+      root.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/72 p-4 backdrop-blur-md">
+          <section class="soft-panel max-h-[90vh] flex flex-col overflow-hidden w-full max-w-3xl rounded-2xl p-6">
+            <div class="mb-5 flex items-center justify-between shrink-0">
+              <h2 class="text-lg font-semibold text-zinc-50">Equipe</h2>
+              <button id="close-team" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.08]">Fechar</button>
+            </div>
+            <div id="team-content" class="overflow-y-auto flex-1 pr-2">
+              <div class="flex justify-center p-8"><span class="loader"></span></div>
+            </div>
+          </section>
+        </div>
+      `;
+
+      document.getElementById('close-team').addEventListener('click', () => { root.innerHTML = ''; });
+
+      try {
+        const users = await fetchUsers();
+        renderTeamList(users);
+      } catch (err) {
+        document.getElementById('team-content').innerHTML = `<p class="text-rose-400">${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    function renderTeamList(users) {
+      const content = document.getElementById('team-content');
+      if (!content) return;
+      
+      let html = `
+        <div class="mb-4">
+          <button id="new-user-btn" type="button" class="rounded-xl bg-[#E8205E] px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-600">Adicionar Usuário</button>
+        </div>
+        <div class="rounded-xl border border-white/10 overflow-hidden">
+          <table class="w-full text-left text-sm text-zinc-300">
+            <thead class="bg-white/[0.02] text-xs uppercase text-zinc-400">
+              <tr>
+                <th class="px-4 py-3 font-semibold">Email</th>
+                <th class="px-4 py-3 font-semibold">Função</th>
+                <th class="px-4 py-3 font-semibold text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/10">
+      `;
+
+      users.forEach(u => {
+        html += `
+          <tr class="hover:bg-white/[0.01]">
+            <td class="px-4 py-3">${escapeHtml(u.email)}</td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${u.role === 'admin' ? 'bg-violet-400/10 text-violet-400 ring-1 ring-inset ring-violet-400/20' : 'bg-zinc-400/10 text-zinc-400 ring-1 ring-inset ring-zinc-400/20'}">${u.role === 'admin' ? 'Admin' : 'Usuário'}</span>
+            </td>
+            <td class="px-4 py-3 text-right">
+              <button type="button" class="edit-user-btn text-[#E8205E] hover:text-rose-400 font-semibold" data-user='${escapeHtml(JSON.stringify(u))}'>Editar</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table></div>`;
+      content.innerHTML = html;
+
+      document.getElementById('new-user-btn').addEventListener('click', () => renderUserForm(null));
+      document.querySelectorAll('.edit-user-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const user = JSON.parse(e.target.dataset.user);
+          renderUserForm(user);
+        });
+      });
+    }
+
+    async function renderUserForm(user) {
+      const content = document.getElementById('team-content');
+      content.innerHTML = `<div class="flex justify-center p-8"><span class="loader"></span></div>`;
+      
+      try {
+        const pipelines = await fetchPipelines();
+        const isEdit = !!user;
+        const allowed = isEdit && user.role !== 'admin' && user.allowed_pipelines ? user.allowed_pipelines : [];
+
+        let pipeHtml = '';
+        pipelines.forEach(p => {
+          const checked = isEdit && (user.role === 'admin' || allowed.includes(p.key)) ? 'checked' : '';
+          const disabled = isEdit && user.role === 'admin' ? 'disabled' : '';
+          pipeHtml += `
+            <label class="flex items-center space-x-3 mb-2 cursor-pointer">
+              <input type="checkbox" name="pipelines" value="${escapeHtml(p.key)}" ${checked} ${disabled} class="w-4 h-4 rounded border-white/20 bg-zinc-900 text-[#E8205E] focus:ring-[#E8205E] focus:ring-offset-zinc-900">
+              <span class="text-sm font-medium text-zinc-300">${escapeHtml(p.name)}</span>
+            </label>
+          `;
+        });
+
+        content.innerHTML = `
+          <div class="mb-4">
+            <button id="back-team-btn" class="text-sm text-zinc-400 hover:text-zinc-200">← Voltar para lista</button>
+          </div>
+          <form id="user-form" class="space-y-5">
+            <h3 class="text-lg font-bold text-zinc-100">${isEdit ? 'Editar Usuário' : 'Novo Usuário'}</h3>
+            
+            <label class="block text-sm text-zinc-300">Email
+              <input name="email" type="email" required ${isEdit ? 'readonly disabled' : ''} value="${escapeHtml(user?.email)}" class="field-dark mt-2 w-full rounded-xl px-3.5 py-2.5 text-sm ${isEdit ? 'opacity-50' : ''}">
+            </label>
+            
+            <label class="block text-sm text-zinc-300">${isEdit ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha Inicial'}
+              <input name="password" type="text" ${!isEdit ? 'required' : ''} class="field-dark mt-2 w-full rounded-xl px-3.5 py-2.5 text-sm">
+            </label>
+
+            ${!isEdit ? `
+            <label class="block text-sm text-zinc-300">Função
+              <select name="role" class="field-dark mt-2 w-full rounded-xl px-3.5 py-2.5 text-sm">
+                <option value="user">Usuário Padrão</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </label>
+            ` : ''}
+
+            <div id="pipelines-container" class="${isEdit && user.role === 'admin' ? 'opacity-50' : ''}">
+              <p class="block text-sm text-zinc-300 mb-3 font-semibold">Planilhas Permitidas</p>
+              <div class="bg-white/[0.02] border border-white/10 rounded-xl p-4 max-h-64 overflow-y-auto">
+                ${pipeHtml}
+              </div>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+              <button type="submit" class="flex-1 rounded-xl bg-[#E8205E] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">Salvar Usuário</button>
+              ${isEdit && true ? `<button type="button" id="delete-user-btn" class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm font-bold text-rose-400 transition hover:bg-rose-500/20">Excluir</button>` : ''}
+            </div>
+            <p id="user-form-msg" class="text-sm text-rose-400 hidden"></p>
+          </form>
+        `;
+
+        document.getElementById('back-team-btn').addEventListener('click', async () => {
+          const users = await fetchUsers();
+          renderTeamList(users);
+        });
+
+        // Simple authUserId helper if not defined, we can extract from session. Wait, we don't store authUserId globally.
+        // It's fine to just let the backend reject deleting self.
+
+        const form = document.getElementById('user-form');
+        const roleSelect = form.elements.namedItem('role');
+        const pipelinesContainer = document.getElementById('pipelines-container');
+        
+        if (roleSelect) {
+          roleSelect.addEventListener('change', () => {
+            if (roleSelect.value === 'admin') {
+              pipelinesContainer.classList.add('opacity-50');
+              form.querySelectorAll('input[name="pipelines"]').forEach(cb => { cb.disabled = true; cb.checked = true; });
+            } else {
+              pipelinesContainer.classList.remove('opacity-50');
+              form.querySelectorAll('input[name="pipelines"]').forEach(cb => { cb.disabled = false; cb.checked = false; });
+            }
+          });
+        }
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (isProcessing()) return;
+          const msg = document.getElementById('user-form-msg');
+          msg.classList.add('hidden');
+          
+          const payload = {
+            password: form.elements.namedItem('password').value
+          };
+          
+          const checkboxes = Array.from(form.querySelectorAll('input[name="pipelines"]'));
+          const selectedPipelines = checkboxes.filter(cb => cb.checked).map(cb => cb.value);
+          payload.allowed_pipelines = selectedPipelines;
+
+          let url = '';
+          if (isEdit) {
+            url = `${API_URL}?action=update_user`;
+            payload.user_id = user.id;
+          } else {
+            url = `${API_URL}?action=create_user`;
+            payload.email = form.elements.namedItem('email').value;
+            payload.role = roleSelect.value;
+            if (payload.role === 'admin') delete payload.allowed_pipelines;
+          }
+
+          await withProcessing('Salvando usuário...', async () => {
+            try {
+              const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              const data = await res.json();
+              if (!data.success) throw new Error(data.error || 'Erro ao salvar usuário');
+              
+              const users = await fetchUsers();
+              renderTeamList(users);
+            } catch (err) {
+              msg.textContent = err.message;
+              msg.classList.remove('hidden');
+            }
+          });
+        });
+
+        const deleteBtn = document.getElementById('delete-user-btn');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', async () => {
+            if (isProcessing()) return;
+            if (!confirm(`Tem certeza que deseja excluir o usuário ${user.email}?`)) return;
+            
+            const msg = document.getElementById('user-form-msg');
+            await withProcessing('Excluindo...', async () => {
+              try {
+                const res = await fetch(`${API_URL}?action=delete_user`, {
+                  method: 'POST',
+                  credentials: 'same-origin',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ user_id: user.id })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Erro ao excluir usuário');
+                
+                const users = await fetchUsers();
+                renderTeamList(users);
+              } catch (err) {
+                msg.textContent = err.message;
+                msg.classList.remove('hidden');
+              }
+            });
+          });
+        }
+      } catch (err) {
+        content.innerHTML = `<p class="text-rose-400">${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+
     function renderImportModal() {
       const root = document.getElementById('import-root');
       root.innerHTML = `
@@ -2087,6 +2352,7 @@
     }
 
     function renderSheetRegistration(withDivider = true) {
+      if (currentUserRole !== 'admin') return '';
       const sectionClass = withDivider ? 'class="mt-6 border-t border-white/10 pt-6"' : 'class="pt-2"';
       return `<section ${sectionClass}>
         <h3 class="text-lg font-bold text-zinc-100">Adicionar planilha por link</h3>
@@ -2307,6 +2573,7 @@
             const data = await response.json();
             if (!data.success) throw new Error(data.error || 'Erro ao entrar');
 
+            currentUserRole = data.role || 'user';
             await bootPipelines();
             await loadLeads({ withinOperation: true });
           } catch (error) {
@@ -2363,6 +2630,7 @@
           if (!session.success) throw new Error(session.error || 'Falha ao verificar a sessão.');
           if (session.needs_setup) return renderSetupScreen();
           if (!session.authenticated) return renderLoginScreen();
+          currentUserRole = session.role || 'user';
           await bootPipelines();
           await loadLeads({ withinOperation: true });
         } catch (error) {
@@ -2381,3 +2649,4 @@
   </script>
 </body>
 </html>
+

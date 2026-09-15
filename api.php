@@ -44,7 +44,7 @@ function auth_current_user() {
     $token = isset($_COOKIE[SESSION_COOKIE]) ? $_COOKIE[SESSION_COOKIE] : '';
     if ($token === '') return $cached = null;
     $r = neon_query(
-        'SELECT u.id, u.email, u.role, s.expires_at
+        'SELECT u.id, u.email, u.role, u.allowed_pipelines, s.expires_at
            FROM sessions s JOIN users u ON u.id = s.user_id
           WHERE s.token = $1', array($token));
     if (empty($r['rows'])) return $cached = null;
@@ -973,6 +973,7 @@ try {
             'authenticated' => $u !== null,
             'needs_setup'   => false,
             'email'         => $u ? $u['email'] : null,
+            'role'          => $u ? $u['role'] : null,
         ));
     }
 
@@ -1018,7 +1019,7 @@ try {
         neon_query('UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = now() WHERE id = $1',
                    array($u['id']));
         auth_set_cookie($token, $remember);
-        json_response(array('success' => true, 'email' => $u['email']));
+        json_response(array('success' => true, 'email' => $u['email'], 'role' => $u['role']));
     }
 
     if ($action === 'logout') {
@@ -1080,8 +1081,15 @@ try {
     // action=pipelines não precisa de pipeline específico
     if ($action === 'pipelines') {
         $configs = all_pipeline_configs();
+        $u = auth_current_user();
+        $allowed = null;
+        if ($u['role'] !== 'admin' && $u['allowed_pipelines'] !== null) {
+            $allowed = is_string($u['allowed_pipelines']) ? json_decode($u['allowed_pipelines'], true) : $u['allowed_pipelines'];
+            if (!is_array($allowed)) $allowed = array();
+        }
         $output  = array();
         foreach ($configs as $config) {
+            if ($allowed !== null && !in_array($config['key'], $allowed, true)) continue;
             $entry = array(
                 'key'             => $config['key'],
                 'name'            => $config['name'],
@@ -1099,7 +1107,103 @@ try {
         json_response(array('success' => true, 'pipelines' => $output));
     }
 
+    // ── gestão de usuários (admin only) ───────────────────────────────────────
+    if ($action === 'list_users') {
+        if ((auth_current_user()['role'] ?? '') !== 'admin') json_response(array('success' => false, 'error' => 'Acesso negado'), 403);
+        $r = neon_query('SELECT id, email, role, allowed_pipelines, created_at, last_login_at FROM users ORDER BY created_at');
+        $users = array();
+        foreach ($r['rows'] as $row) {
+            $ap = $row['allowed_pipelines'];
+            if (is_string($ap)) $ap = json_decode($ap, true);
+            $users[] = array(
+                'id'                 => (int)$row['id'],
+                'email'              => $row['email'],
+                'role'               => $row['role'],
+                'allowed_pipelines'  => $ap,
+                'created_at'         => $row['created_at'],
+                'last_login_at'      => $row['last_login_at'],
+            );
+        }
+        json_response(array('success' => true, 'users' => $users));
+    }
+
+    if ($action === 'create_user') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success' => false, 'error' => 'Método inválido'), 405);
+        if ((auth_current_user()['role'] ?? '') !== 'admin') json_response(array('success' => false, 'error' => 'Acesso negado'), 403);
+        $input = json_decode(file_get_contents('php://input'), true);
+        $email = isset($input['email']) ? strtolower(trim((string)$input['email'])) : '';
+        $pw    = isset($input['password']) ? (string)$input['password'] : '';
+        $role  = (isset($input['role']) && $input['role'] === 'admin') ? 'admin' : 'user';
+        $ap    = isset($input['allowed_pipelines']) && is_array($input['allowed_pipelines']) ? $input['allowed_pipelines'] : array();
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) json_response(array('success' => false, 'error' => 'Email inválido'), 400);
+        if (strlen($pw) < 8) json_response(array('success' => false, 'error' => 'Senha muito curta (mínimo 8 caracteres)'), 400);
+
+        $existing = neon_query('SELECT id FROM users WHERE email = $1', array($email));
+        if (!empty($existing['rows'])) json_response(array('success' => false, 'error' => 'Já existe um usuário com este email'), 409);
+
+        $hash = password_hash($pw, PASSWORD_DEFAULT);
+        $apJson = $role === 'admin' ? null : json_encode($ap);
+        neon_query(
+            'INSERT INTO users (email, password_hash, role, allowed_pipelines, failed_attempts) VALUES ($1, $2, $3, $4::jsonb, 0)',
+            array($email, $hash, $role, $apJson)
+        );
+        json_response(array('success' => true));
+    }
+
+    if ($action === 'update_user') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success' => false, 'error' => 'Método inválido'), 405);
+        if ((auth_current_user()['role'] ?? '') !== 'admin') json_response(array('success' => false, 'error' => 'Acesso negado'), 403);
+        $input  = json_decode(file_get_contents('php://input'), true);
+        $userId = isset($input['user_id']) ? (int)$input['user_id'] : 0;
+        if ($userId <= 0) json_response(array('success' => false, 'error' => 'ID de usuário inválido'), 400);
+
+        $target = neon_query('SELECT id, email, role FROM users WHERE id = $1', array($userId));
+        if (empty($target['rows'])) json_response(array('success' => false, 'error' => 'Usuário não encontrado'), 404);
+
+        if (isset($input['allowed_pipelines']) && is_array($input['allowed_pipelines'])) {
+            $ap = $target['rows'][0]['role'] === 'admin' ? null : json_encode($input['allowed_pipelines']);
+            neon_query('UPDATE users SET allowed_pipelines = $1::jsonb WHERE id = $2', array($ap, $userId));
+        }
+
+        if (isset($input['password']) && (string)$input['password'] !== '') {
+            $pw = (string)$input['password'];
+            if (strlen($pw) < 8) json_response(array('success' => false, 'error' => 'Senha muito curta (mínimo 8 caracteres)'), 400);
+            $hash = password_hash($pw, PASSWORD_DEFAULT);
+            neon_query('UPDATE users SET password_hash = $1, failed_attempts = 0, locked_until = NULL WHERE id = $2', array($hash, $userId));
+        }
+
+        json_response(array('success' => true));
+    }
+
+    if ($action === 'delete_user') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_response(array('success' => false, 'error' => 'Método inválido'), 405);
+        if ((auth_current_user()['role'] ?? '') !== 'admin') json_response(array('success' => false, 'error' => 'Acesso negado'), 403);
+        $input  = json_decode(file_get_contents('php://input'), true);
+        $userId = isset($input['user_id']) ? (int)$input['user_id'] : 0;
+        if ($userId <= 0) json_response(array('success' => false, 'error' => 'ID de usuário inválido'), 400);
+
+        $me = auth_current_user();
+        if ((int)$me['id'] === $userId) json_response(array('success' => false, 'error' => 'Você não pode excluir a própria conta'), 400);
+
+        $target = neon_query('SELECT id FROM users WHERE id = $1', array($userId));
+        if (empty($target['rows'])) json_response(array('success' => false, 'error' => 'Usuário não encontrado'), 404);
+
+        neon_query('DELETE FROM sessions WHERE user_id = $1', array($userId));
+        neon_query('DELETE FROM users WHERE id = $1', array($userId));
+        json_response(array('success' => true));
+    }
+
     $pipeline = current_pipeline();
+
+    // Verificar se o usuário tem acesso ao pipeline solicitado
+    $u = auth_current_user();
+    if ($u['role'] !== 'admin' && $u['allowed_pipelines'] !== null) {
+        $allowed = is_string($u['allowed_pipelines']) ? json_decode($u['allowed_pipelines'], true) : $u['allowed_pipelines'];
+        if (is_array($allowed) && !in_array($pipeline['key'], $allowed, true)) {
+            json_response(array('success' => false, 'error' => 'Você não tem acesso a este pipeline'), 403);
+        }
+    }
 
     if ($action === 'get_leads') {
         if ($pipeline['driver'] === 'neon') {
@@ -1348,6 +1452,7 @@ try {
     }
 
     if ($action === 'import') {
+        if ((auth_current_user()['role'] ?? '') !== 'admin') json_response(array('success' => false, 'error' => 'Apenas administradores podem importar dados.'), 403);
         if (!$pipeline['supports_import']) {
             json_response(array('success' => false, 'error' => 'Import manual não está disponível neste pipeline'), 400);
         }

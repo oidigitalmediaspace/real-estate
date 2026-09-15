@@ -357,6 +357,25 @@ module.exports = (async () => {
     assert.equal(res, 'OK');
   });
 
+  await test('frontend RBAC: admin vê painel Equipe e importação, user não vê', async () => {
+    const f = fixture();
+    f.evaluate(`currentUserRole = 'admin'; PIPELINES.real_estate.supportsImport = true;`);
+    f.context.renderHeaderShell = f.evaluate('renderHeaderShell');
+    f.context.renderHeaderActions = f.evaluate('renderHeaderActions');
+    f.context.renderPipelineTabs = f.evaluate('renderPipelineTabs');
+    
+    // Testa Admin
+    f.document.getElementById('app').innerHTML = f.evaluate('renderHeaderShell(renderHeaderActions(10))');
+    assert.match(f.document.getElementById('app').innerHTML, /Equipe/);
+    assert.match(f.document.getElementById('app').innerHTML, /Adicionar nova planilha/);
+    
+    // Testa User
+    f.evaluate(`currentUserRole = 'user';`);
+    f.document.getElementById('app').innerHTML = f.evaluate('renderHeaderShell(renderHeaderActions(10))');
+    assert.doesNotMatch(f.document.getElementById('app').innerHTML, /Equipe/);
+    assert.doesNotMatch(f.document.getElementById('app').innerHTML, /Adicionar nova planilha/);
+  });
+
   return { passed, externalRequests: 0 };
 })();
 
