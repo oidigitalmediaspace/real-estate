@@ -3,9 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const source = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
-  .map(m => m[1]).find(s => s.includes('const API_URL')).replace('    initApp();', '');
+const source = [
+  fs.readFileSync(path.join(__dirname, '..', 'js', 'state.js'), 'utf8'),
+  fs.readFileSync(path.join(__dirname, '..', 'js', 'api.js'), 'utf8'),
+  fs.readFileSync(path.join(__dirname, '..', 'js', 'ui.js'), 'utf8'),
+  fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8')
+].join('\n').replace('    initApp();', '');
 
 function fixture() {
   const elements = new Map();
@@ -325,9 +328,9 @@ module.exports = (async () => {
   await test('backend file_add_lead cria corretamente e mock de retry de colisão de UUID funciona', async () => {
     const cp = require('node:child_process');
     const phpCode = `
-      $source = file_get_contents(__DIR__ . '/api.php');
-      $end = strpos($source, '// ── roteamento');
-      eval(substr($source, 5, $end - 5));
+      require_once __DIR__ . '/backend/helpers.php';
+      require_once __DIR__ . '/backend/csv_helpers.php';
+      require_once __DIR__ . '/backend/file_driver.php';
       
       $pipeline = file_pipeline_config();
       $pipeline['file'] = __DIR__ . '/test_backend_add_lead.json';

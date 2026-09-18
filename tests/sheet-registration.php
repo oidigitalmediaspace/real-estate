@@ -4,11 +4,12 @@ if (PHP_SAPI !== 'cli') {
     exit('Execução permitida apenas pela linha de comando.');
 }
 // Sem rede por padrão. --integration exercita apenas a branch de testes conhecida.
-$source = file_get_contents(__DIR__ . '/../api.php');
-$start = strpos($source, 'function real_estate_statuses()');
-$end = strpos($source, '// ── roteamento');
-if ($start === false || $end === false) throw new Exception('Não foi possível carregar as funções de teste.');
-eval(substr($source, $start, $end - $start));
+$source = "";
+require_once __DIR__ . '/../backend/helpers.php';
+require_once __DIR__ . '/../backend/csv_helpers.php';
+require_once __DIR__ . '/../backend/neon_driver.php';
+require_once __DIR__ . '/../backend/google_sheets.php';
+require_once __DIR__ . '/../backend/neon_services.php';
 $passed = 0;
 function check_sheet($condition, $message) {
     global $passed;
