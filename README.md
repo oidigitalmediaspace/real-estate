@@ -1,6 +1,6 @@
 # Real Estate CRM — Oi Digital Media
 
-CRM em português para importar leads, reunir respostas de questionários e acompanhar atendimento em um quadro de colunas. Frontend em um único `index.html` (Vanilla JS e Tailwind via CDN); backend em `api.php`, sem framework.
+CRM em português para importar leads, reunir respostas de questionários e acompanhar atendimento em um quadro de colunas. Frontend componentizado em `js/` (Vanilla JS e Tailwind via CDN); backend modularizado na pasta `backend/` e centralizado no `api.php`.
 
 ## Como funciona
 

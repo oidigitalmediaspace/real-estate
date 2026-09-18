@@ -24,3 +24,7 @@ Thumbs.db
 
 # Original duplicado; a imagem usada pelo site estÃ¡ em assets/.
 /Slogan.png
+
+# Instalação local do PHP para testes
+php/
+php.zip
